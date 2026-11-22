@@ -280,12 +280,15 @@ D15C00000000000000000902 /* DiscordReports.swift */,
 		};
 /* End PBXProject section */
 
+BB5400000000000000000001 = {isa = PBXFileReference; lastKnownFileType = folder; path = tests/SimulatorGalaxy; sourceTree = SOURCE_ROOT; };
+BB5400000000000000000002 = {isa = PBXBuildFile; fileRef = BB5400000000000000000001; };
 /* Begin PBXResourcesBuildPhase section */
 		41D311A605520FC7B8B9A980 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				D92135C445C249E6A5DC0011 /* PrivacyInfo.xcprivacy in Resources */,
+				BB5400000000000000000002,
+                D92135C445C249E6A5DC0011 /* PrivacyInfo.xcprivacy in Resources */,
                 A19E00000000000000000001 /* Localizable.xcstrings in Resources */,
                 A19E00000000000000000003 /* InfoPlist.xcstrings in Resources */,
 				606A672A792903E98EFFC2D9 /* Resources/Branding.xcassets in Resources */,

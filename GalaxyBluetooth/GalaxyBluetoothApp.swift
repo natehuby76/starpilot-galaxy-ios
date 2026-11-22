@@ -1170,7 +1170,9 @@ struct GalaxyRootView: View {
                 return
             }
             if ProcessInfo.processInfo.arguments.contains("--preview-galaxy") {
-                if let fixture = ProcessInfo.processInfo.environment["GALAXY_UI_FIXTURE"] {
+                if ProcessInfo.processInfo.arguments.contains("--simulator-toggles"), let root = Bundle.main.url(forResource: "SimulatorGalaxy", withExtension: nil) {
+                    server.useWebRoot(root)
+                } else if let fixture = ProcessInfo.processInfo.environment["GALAXY_UI_FIXTURE"] {
                     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("galaxy-layout-preview", isDirectory: true)
                     do {
                         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

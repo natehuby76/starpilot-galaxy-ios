@@ -2,6 +2,23 @@ import XCTest
 import UIKit
 
 final class IntegrationUITests: XCTestCase {
+    func testSimulatorTogglesCapture() {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments = ["--preview-galaxy", "--simulator-toggles"]
+        app.launch()
+        let options = app.buttons["galaxy-pill-options"]
+        XCTAssertTrue(options.waitForExistence(timeout: 45), app.debugDescription)
+        XCTAssertTrue(app.webViews.staticTexts["Always On Lateral"].waitForExistence(timeout: 20), app.debugDescription)
+        for name in ["Toggles portrait", "Toggles options open"] {
+            if name.hasSuffix("open") { options.tap(); XCTAssertTrue(app.buttons["Settings"].firstMatch.waitForExistence(timeout: 5)) }
+            Thread.sleep(forTimeInterval: 0.5)
+            let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            shot.name = name
+            shot.lifetime = .keepAlways
+            add(shot)
+        }
+    }
     func testLandingAndGalaxyPillLayouts() throws {
         let app = XCUIApplication()
         XCUIDevice.shared.orientation = .portrait
