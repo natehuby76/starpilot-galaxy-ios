@@ -4,8 +4,13 @@ import CryptoKit
 
 /// What the share extension needs from the app, mirrored into the App Group; the tunnel login lives in the group's keychain.
 enum ShareGroup {
+#if targetEnvironment(simulator)
+    static let id = "group.link.galaxy.bluetooth.natehuby76.preview"
+    static let pendingNotification = "link.galaxy.bluetooth.natehuby76.preview.share.pending"
+#else
     static let id = "group.link.galaxy.bluetooth.natehuby76"
     static let pendingNotification = "link.galaxy.bluetooth.natehuby76.share.pending"
+#endif
     static let maxAge: TimeInterval = 12 * 3600
 
     struct Tunnel: Codable, Equatable { let url: String; let cookie: String }

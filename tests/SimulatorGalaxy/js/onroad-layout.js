@@ -15,15 +15,13 @@ import { snapTargets, snapMove, snapResize, snapThreshold } from "./layout-snap.
 import { PROFILES, ROAD_COLORS, PATH_MODES, HEX, PROJECTION_DISPLAY_SWITCHES, layoutDocument, previewDocument, withDisplay, orderedWidgetIds, widgetPalette, withAlpha, widgetSize, placementLimits, clampBox, clampPlacement, overlapsReserved, previewPoint, validDocument, validSnapshot } from "./onroad-layout-document.js"
 export { layoutDocument, previewDocument, withDisplay, orderedWidgetIds, widgetPalette, withAlpha, widgetSize, placementLimits, clampBox, clampPlacement, overlapsReserved, previewPoint, validDocument, validSnapshot } from "./onroad-layout-document.js"
 
-const previewVisibilityKey = projection => "gx-layout-preview-visibility-v2:" + (projection ? "starport" : "comma")
-const oldProjectionVisibilityKey = "gx-layout-preview-visibility-v2:android-auto"
+const previewVisibilityKey = projection => "gx-layout-preview-visibility-v2:" + (projection ? "android-auto" : "comma")
 function loadPreviewVisibility(projection) {
   const hidden = { large: {}, compact: {} }
   try {
-    const currentKey = previewVisibilityKey(projection)
-    const raw = localStorage.getItem(currentKey) ?? (projection ? localStorage.getItem(oldProjectionVisibilityKey) : null)
+    const raw = localStorage.getItem(previewVisibilityKey(projection))
     const legacy = raw === null
-    const saved = JSON.parse(raw ?? localStorage.getItem(currentKey.replace('-v2:', '-v1:')))
+    const saved = JSON.parse(raw ?? localStorage.getItem(previewVisibilityKey(projection).replace('-v2:', '-v1:')))
     for (const profile of PROFILES) {
       const widgets = saved?.[profile]
       if (!widgets || typeof widgets !== "object" || Array.isArray(widgets)) continue
@@ -108,7 +106,7 @@ export class OnroadLayoutFeed {
         "Reading colors and layouts timed out. Try reloading.")
     }, 5000)
     try {
-      const response = await this.fetcher(this.projection ? "./api/starport/layout" : "./api/ui/layout", {
+      const response = await this.fetcher(this.projection ? "./api/android-auto/layout" : "./api/ui/layout", {
         credentials: "same-origin", cache: "no-store", signal: request.signal,
         ...(saving ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(this.projection ? projectionPayload(body, this.data.metadata) : body) } : {})
       })
@@ -130,9 +128,9 @@ export class OnroadLayoutFeed {
       this.needsReload = false
       this.publish({
         status: "ready", data, ...((saving || initial || !background) ? { draft: clone(data.document) } : {}), error: "", needsReload: false,
-        notice: saving ? (this.projection ? "StarPort layout saved." : data.failed?.length ?
+        notice: saving ? (this.projection ? "Android Auto layout saved." : data.failed?.length ?
           "Layout saved, but these display options did not change: " + data.failed.join(", ") + ". Reload and try again." :
-          "Colors and both layouts saved.") + (mapMoved ? " The map overlay is now off in the " + (this.projection ? "Big screen" : "StarPort") + " layout." : "") :
+          "Colors and both layouts saved.") + (mapMoved ? " The map overlay is now off in the " + (this.projection ? "Big screen" : "Android Auto") + " layout." : "") :
           !background && !initial ? "Reloaded the saved layout." : ""
       })
       return true
@@ -149,30 +147,9 @@ export class OnroadLayoutFeed {
   }
 }
 
-// Which map and route provider the comma uses, so the navigation previews match what it draws.
-export const navLook = reactive({ map: "mapbox", routes: "mapbox" })
-export async function loadNavLook(fetcher = (...args) => fetch(...args)) {
-  try {
-    const response = await fetcher("./api/navigation/status", { credentials: "same-origin", cache: "no-store" })
-    const data = response.ok ? await response.json() : null
-    navLook.map = data?.mapProvider === "google" && data.hasGoogleKey ? "google" : "mapbox"
-    navLook.routes = data?.routeProvider === "google" && data.hasGoogleKey ? "google" : "mapbox"
-  } catch { /* The Mapbox look stays when navigation is unreachable. */ }
-}
-
 export const LayoutWidgetPreview = {
   props: ["widget", "palette", "profile", "scene", "clock24Hour", "native", "art"],
-  computed: {
-    nav() { return navLook },
-    googleMap() { return navLook.map === "google" },
-    googleRoutes() { return navLook.routes === "google" },
-    roadNameSize() { return Math.max(18, Math.min(this.widget.width, this.widget.height) * .075) },
-  },
   methods: {
-    unidenSignal(strength, index) {
-      const t = index / Math.max(1, strength - 1)
-      return `rgb(${Math.round(77 + 80 * t)},${Math.round(232 - 118 * t)},${Math.round(232 + 23 * t)})`
-    },
     withAlpha,
     modeLines(scene, profile) {
       const { mode, experimental } = previewScene(scene), aol = scene === "aol"
@@ -183,7 +160,7 @@ export const LayoutWidgetPreview = {
   },
   template: `
     <g aria-hidden="true" class="gx-layout-widget-art" :fill="palette.text || '#ffffff'">
-      <template v-if="native || art?.url && art.sprites?.sprites?.[widget.id]">
+      <template v-if="native">
         <svg v-if="art?.url && art.sprites?.sprites?.[widget.id]"
           :x="art.sprites.sprites[widget.id].offsetX || 0" :y="art.sprites.sprites[widget.id].offsetY || 0"
           :width="art.sprites.sprites[widget.id].width" :height="art.sprites.sprites[widget.id].height"
@@ -210,167 +187,26 @@ export const LayoutWidgetPreview = {
         <text :x="widget.width / 2" :y="widget.height * 101 / 112" text-anchor="middle" dominant-baseline="middle" :font-size="widget.height * 30 / 112" font-weight="500" fill="#fffffff2"
           style="filter: drop-shadow(2px 2px 1px #000000aa)">14 seconds</text>
       </template>
-      <g v-else-if="widget.kind === 'weather'">
-        <rect x="1" y="1" :width="widget.width - 2" :height="widget.height - 2" :rx="widget.height * .1"
-          :fill="palette.cardFill" :stroke="palette.cardBorder" />
-        <svg :x="widget.height * .1" :y="widget.height * .05" :width="widget.height * .8" :height="widget.height * .8" viewBox="0 0 80 80">
-          <g fill="none" stroke="#c7aef7" stroke-width="3" stroke-linecap="round">
-            <circle cx="27" cy="28" r="13" fill="#c7aef7" />
-            <path d="M27 6v-4 M27 50v4 M5 28H1 M49 28h4 M11 12l-3-3 M43 12l3-3 M11 44l-3 3" />
-          </g>
-          <path d="M20 61a13 13 0 0 1 0-26 18 18 0 0 1 34-3 14 14 0 1 1 4 29Z" fill="#edf0ff" />
-        </svg>
-        <text :x="widget.height" :y="widget.height * .55" :font-size="profile === 'large' ? 44 : 24" font-weight="600">70°F</text>
-        <text :x="widget.height" :y="widget.height * .88" :font-size="profile === 'large' ? 16 : 8" fill="#c7aef7">Open-Meteo</text>
-      </g>
       <template v-else-if="widget.kind === 'clock'">
         <text :x="widget.width / 2" :y="widget.height / 2" text-anchor="middle" dominant-baseline="middle"
           :font-size="profile === 'large' ? 48 : 21" font-weight="600"
           style="filter: drop-shadow(2px 2px 1px #000000aa)">{{ clock24Hour ? '18:00' : '12:00 PM' }}</text>
       </template>
-      <g v-else-if="widget.kind === 'now_playing' && widget.size === 'big'">
-        <defs><linearGradient id="gx-np-wash" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8a3a52" /><stop offset=".45" stop-color="#5a2350" /><stop offset="1" stop-color="#22143f" /></linearGradient></defs>
-        <rect x="0" y="0" :width="widget.width" :height="widget.height" rx="40" fill="url(#gx-np-wash)" :fill-opacity="(widget.opacity ?? 85) / 100" />
-        <rect x="40" y="20" width="138" height="36" rx="18" fill="#000000" fill-opacity=".35" stroke="#ffffff" stroke-opacity=".12" />
-        <path d="M61 47 V29 H69 V32 H63.6 V45" fill="#c7aef7" /><circle cx="61" cy="46" r="4.3" fill="#c7aef7" />
-        <text x="82" y="44" font-size="18" font-weight="600" fill="#f5f2fc">StarPilot</text>
-        <text :x="widget.width - 40" y="44" text-anchor="end" font-size="18" fill="#d6d2e0">Spotify</text>
-        <text :x="widget.width / 2" y="92" text-anchor="middle" font-size="30" font-weight="600" fill="#f5f2fc">Midnight City<tspan font-weight="400" fill="#d6d2e0">  •  M83</tspan></text>
-        <rect x="40" y="112" :width="widget.width - 80" height="10" rx="5" fill="#ffffff" fill-opacity=".18" />
-        <rect x="40" y="112" :width="(widget.width - 80) * .38" height="10" rx="5" fill="#ffffff" />
-        <text x="40" y="144" font-size="16" fill="#b8b2c8">1:32</text>
-        <text :x="widget.width - 40" y="144" text-anchor="end" font-size="16" fill="#b8b2c8">4:03</text>
-        <g :transform="'translate(' + (widget.width / 2 - 192) + ' 208)'" fill="none" stroke="#d6d2e0" stroke-width="3.5" stroke-linecap="round">
-          <path d="M-16 -10 C0 -10 0 10 18 10 M-16 10 C0 10 0 -10 18 -10 M13 -16 L19 -10 L13 -4 M13 4 L19 10 L13 16" />
-        </g>
-        <g :transform="'translate(' + (widget.width / 2 - 96) + ' 208)'"><circle r="32" fill="#ffffff" fill-opacity=".14" /><path d="M9 -12 L9 12 L-9 0 Z M-14 -12 H-9 V12 H-14 Z" fill="#f5f2fc" /></g>
-        <g :transform="'translate(' + widget.width / 2 + ' 208)'"><circle r="36" fill="#f5f2fc" /><path d="M-10 -13 H-3 V13 H-10 Z M3 -13 H10 V13 H3 Z" fill="#0f0d17" /></g>
-        <g :transform="'translate(' + (widget.width / 2 + 96) + ' 208)'"><circle r="32" fill="#ffffff" fill-opacity=".14" /><path d="M-9 -12 L-9 12 L9 0 Z M9 -12 H14 V12 H9 Z" fill="#f5f2fc" /></g>
-        <g :transform="'translate(' + (widget.width / 2 + 192) + ' 208)'" fill="none" stroke="#d6d2e0" stroke-width="4" stroke-linecap="round">
-          <path d="M-14 -9 H12 M14 9 H-12 M-16 -11 V4 M16 11 V-4" /><path d="M10 -16 L19 -9 L10 -2 Z M-10 16 L-19 9 L-10 2 Z" fill="#d6d2e0" stroke="none" />
-        </g>
-      </g>
       <g v-else-if="widget.kind === 'now_playing'">
-        <defs><linearGradient id="gx-np-wash-small" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8a3a52" /><stop offset=".45" stop-color="#5a2350" /><stop offset="1" stop-color="#22143f" /></linearGradient></defs>
-        <rect x="0" y="0" :width="widget.width" :height="widget.height" :rx="widget.height / 2" fill="url(#gx-np-wash-small)" :fill-opacity="(widget.opacity ?? 85) / 100" />
-        <circle :cx="widget.height / 2" :cy="widget.height / 2" r="36" fill="#f5f2fc" />
-        <rect :x="widget.height / 2 - 10" :y="widget.height / 2 - 13" width="7" height="26" rx="3" fill="#0f0d17" />
-        <rect :x="widget.height / 2 + 3" :y="widget.height / 2 - 13" width="7" height="26" rx="3" fill="#0f0d17" />
-        <text :x="widget.height + 4" y="42" font-size="26" font-weight="600" fill="#f5f2fc">Midnight City</text>
-        <text :x="widget.height + 4" y="71" font-size="19" fill="#d6d2e0">M83</text>
-        <g :transform="'translate(' + (widget.width - 42) + ' ' + widget.height / 2 + ') scale(1.3)'" fill="#c7aef7">
-          <path d="M0 7 V-11 H8 V-7.8 H2.6 V7" /><circle cx="-3" cy="7" r="5" />
-        </g>
-      </g>
-      <g v-else-if="widget.kind === 'uniden_alerts'">
-        <g :transform="'scale(' + (widget.scale ?? 100) / 100 + ')'">
-        <rect x="1" y="1" width="458" height="74" rx="14" :stroke="palette.cardBorder || '#9d72ff'" stroke-width="2" :fill="palette.cardFill || '#10191f'" :fill-opacity="(100 - (widget.transparency ?? 8)) / 100" />
-        <text x="24" y="51" font-size="36" font-weight="600" fill="#ff5b65">KA</text>
-        <text x="97" y="48" font-size="28" font-weight="600" :fill="palette.text || '#ffffff'">35.500 GHz</text>
-        <rect v-for="i in 8" :key="i" :x="283 + (i - 1) * 11" :y="53 - (8 + (i - 1) * 3)" width="8" :height="8 + (i - 1) * 3"
-          :fill="i > 6 ? '#35434d' : unidenSignal(6, i - 1)" />
-        <path d="M411 25 L426 51 L396 51 Z" fill="#ff5b65" />
-        </g>
-      </g>
-      <g v-else-if="widget.kind === 'network_signal' && !['horizontal', 'vertical'].includes(widget.size)" :transform="'scale(' + widget.width / 112 + ')'">
-        <rect width="112" :height="(widget.bluetooth === false ? 102 : 140) + (widget.wifiName ? 22 : 0)" rx="24" fill="#0f0d17" :fill-opacity="235 / 255 * (widget.opacity ?? 85) / 100" />
-        <text v-if="widget.wifiName" x="56" y="21" text-anchor="middle" font-size="13" font-weight="600" fill="#f5f2fc">Home Wi-Fi</text>
-        <g :transform="widget.wifiName ? 'translate(0 22)' : null">
-          <g>
-            <path d="M17.0 78.5A45 45 0 0 1 11.2 60.7" fill="none" stroke="#f5f2fc" stroke-width="7" />
-            <path d="M95.0 78.5A45 45 0 0 0 100.8 60.7" fill="none" stroke="#c7aef7" stroke-width="7" />
-            <path d="M11.0 56.8A45 45 0 0 1 14.6 38.4" fill="none" stroke="#f5f2fc" stroke-width="7" />
-            <path d="M101.0 56.8A45 45 0 0 0 97.4 38.4" fill="none" stroke="#c7aef7" stroke-width="7" />
-            <path d="M16.3 34.9A45 45 0 0 1 28.3 20.5" fill="none" stroke="#ffffff2b" stroke-width="7" />
-            <path d="M95.7 34.9A45 45 0 0 0 83.7 20.5" fill="none" stroke="#c7aef7" stroke-width="7" />
-            <path d="M31.5 18.3A45 45 0 0 1 49.0 11.6" fill="none" stroke="#ffffff2b" stroke-width="7" />
-            <path d="M80.5 18.3A45 45 0 0 0 63.0 11.6" fill="none" stroke="#c7aef7" stroke-width="7" />
-          </g>
-          <g :transform="widget.bluetooth === false ? 'translate(0 8)' : null">
-            <rect x="34.0" y="48" width="3" height="4" fill="#b8b2c8" />
-            <rect x="38.5" y="44" width="3" height="8" fill="#b8b2c8" />
-            <rect x="43.0" y="40" width="3" height="12" fill="#b8b2c8" />
-            <rect x="47.5" y="36" width="3" height="16" fill="#b8b2c8" />
-            <circle cx="69" cy="50" r="2" fill="#c7aef7" />
-            <path d="M64.2 45.7A6.5 6.5 0 0 1 73.8 45.7" fill="none" stroke="#c7aef7" stroke-width="2.4" />
-            <path d="M60.5 42.3A11.5 11.5 0 0 1 77.5 42.3" fill="none" stroke="#c7aef7" stroke-width="2.4" />
-          </g>
-          <g v-if="widget.bluetooth !== false">
-            <path d="M56 68V82M56 68L60.5 71.5L51.5 78M51.5 72L60.5 78.5L56 82" fill="none" stroke="#6eafff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-            <text x="56" y="107" text-anchor="middle" font-size="13" font-weight="600" fill="#f5f2fc">iPhone 15</text>
-            <text x="56" y="125" text-anchor="middle" font-size="13" font-weight="600" fill="#f5f2fc">AirPods</text>
-          </g>
-          <text v-else x="56" y="84" text-anchor="middle" font-size="14" font-weight="600" fill="#f5f2fc">Wi-Fi</text>
-        </g>
-      </g>
-      <g v-else-if="widget.kind === 'network_signal' && widget.size === 'horizontal'" :transform="'scale(' + widget.width / 268 + ')'">
-        <rect width="268" :height="112 + (widget.wifiName ? 22 : 0)" rx="28" fill="#0f0d17" :fill-opacity="235 / 255 * (widget.opacity ?? 85) / 100" />
-        <text v-if="widget.wifiName" x="24" y="23" font-size="16" font-weight="600" fill="#f5f2fc">Home Wi-Fi</text>
-        <g :transform="widget.wifiName ? 'translate(0 22)' : null">
-          <g :transform="widget.bluetooth === false ? 'translate(0 11)' : null">
-            <rect x="24" y="29" width="3" height="4" fill="#b8b2c8" />
-            <rect x="28.5" y="25" width="3" height="8" fill="#b8b2c8" />
-            <rect x="33" y="21" width="3" height="12" fill="#b8b2c8" />
-            <rect x="37.5" y="17" width="3" height="16" fill="#b8b2c8" />
-            <text x="50" y="33" font-size="20" font-weight="600" fill="#b8b2c8">LTE</text>
-            <rect x="122" y="22" width="27" height="8" rx="4" fill="#f5f2fc" />
-            <rect x="154" y="22" width="27" height="8" rx="4" fill="#f5f2fc" />
-            <rect x="186" y="22" width="27" height="8" rx="4" fill="#ffffff2b" />
-            <rect x="218" y="22" width="27" height="8" rx="4" fill="#ffffff2b" />
-          </g>
-          <g :transform="widget.bluetooth === false ? 'translate(0 19)' : null">
-            <circle cx="33" cy="61" r="2" fill="#c7aef7" />
-            <path d="M28.17 56.65A6.5 6.5 0 0 1 37.83 56.65" fill="none" stroke="#c7aef7" stroke-width="2.4" />
-            <path d="M24.45 53.30A11.5 11.5 0 0 1 41.55 53.30" fill="none" stroke="#c7aef7" stroke-width="2.4" />
-            <text x="50" y="63" font-size="20" font-weight="600" fill="#f5f2fc">Wi-Fi</text>
-            <rect x="122" y="52" width="27" height="8" rx="4" fill="#c7aef7" />
-            <rect x="154" y="52" width="27" height="8" rx="4" fill="#c7aef7" />
-            <rect x="186" y="52" width="27" height="8" rx="4" fill="#c7aef7" />
-            <rect x="218" y="52" width="27" height="8" rx="4" fill="#c7aef7" />
-          </g>
-          <g v-if="widget.bluetooth !== false">
-            <path d="M33 79V93M33 79L37.5 82.5L28.5 89M28.5 83L37.5 89.5L33 93" fill="none" stroke="#6eafff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-            <text x="50" y="92" font-size="18" font-weight="600" fill="#f5f2fc">iPhone 15</text>
-            <circle cx="155" cy="86" r="4" fill="#6eafff" />
-            <text x="245" y="91" text-anchor="end" font-size="16" font-weight="600" fill="#6eafff">Connected</text>
-          </g>
-        </g>
-      </g>
-      <g v-else-if="widget.kind === 'network_signal' && widget.size === 'vertical'" :transform="'scale(' + widget.width / 112 + ')'">
-        <rect width="112" :height="196 + (widget.wifiName ? 22 : 0)" rx="24" fill="#0f0d17" :fill-opacity="235 / 255 * (widget.opacity ?? 85) / 100" />
-        <text v-if="widget.wifiName" x="56" y="21" text-anchor="middle" font-size="13" font-weight="600" fill="#f5f2fc">Home Wi-Fi</text>
-        <g :transform="widget.wifiName ? 'translate(0 22)' : null">
-          <g :transform="widget.bluetooth === false ? 'translate(0 14)' : null">
-            <circle cx="34" cy="90" r="8" fill="#f5f2fc" />
-            <circle cx="34" cy="68" r="8" fill="#f5f2fc" />
-            <circle cx="34" cy="46" r="8" fill="#ffffff2b" />
-            <circle cx="34" cy="24" r="8" fill="#ffffff2b" />
-            <rect x="25.75" y="122" width="3" height="4" fill="#b8b2c8" />
-            <rect x="30.25" y="118" width="3" height="8" fill="#b8b2c8" />
-            <rect x="34.75" y="114" width="3" height="12" fill="#b8b2c8" />
-            <rect x="39.25" y="110" width="3" height="16" fill="#b8b2c8" />
-            <text x="34" y="147" text-anchor="middle" font-size="13" font-weight="600" fill="#b8b2c8">LTE</text>
-            <circle cx="78" cy="90" r="8" fill="#c7aef7" />
-            <circle cx="78" cy="68" r="8" fill="#c7aef7" />
-            <circle cx="78" cy="46" r="8" fill="#c7aef7" />
-            <circle cx="78" cy="24" r="8" fill="#c7aef7" />
-            <circle cx="78" cy="124" r="2" fill="#c7aef7" />
-            <path d="M73.17 119.65A6.5 6.5 0 0 1 82.83 119.65" fill="none" stroke="#c7aef7" stroke-width="2.4" />
-            <path d="M69.45 116.30A11.5 11.5 0 0 1 86.55 116.30" fill="none" stroke="#c7aef7" stroke-width="2.4" />
-            <text x="78" y="147" text-anchor="middle" font-size="13" font-weight="600" fill="#f5f2fc">Wi-Fi</text>
-          </g>
-          <g v-if="widget.bluetooth !== false">
-            <line x1="14" y1="156" x2="98" y2="156" stroke="#ffffff2b" stroke-width="1.5" />
-            <path d="M24 169V183M24 169L28.5 172.5L19.5 179M19.5 173L28.5 179.5L24 183" fill="none" stroke="#6eafff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-            <text x="35" y="181" font-size="13" font-weight="600" fill="#f5f2fc">iPhone 15</text>
-          </g>
-        </g>
+        <rect x="0" y="0" :width="widget.width" :height="widget.height" :rx="widget.height / 2" fill="#0f0d17" :fill-opacity="(widget.opacity ?? 85) / 100 * .92" />
+        <circle :cx="widget.height / 2" :cy="widget.height / 2" r="30" fill="#c7aef7" />
+        <rect :x="widget.height / 2 - 9" :y="widget.height / 2 - 12" width="6" height="24" rx="3" fill="#0f0d17" />
+        <rect :x="widget.height / 2 + 3" :y="widget.height / 2 - 12" width="6" height="24" rx="3" fill="#0f0d17" />
+        <text :x="widget.height + 4" y="40" font-size="30" font-weight="600" fill="#f5f2fc">Midnight City</text>
+        <text :x="widget.height + 4" y="68" font-size="22" fill="#b8b2c8">M83</text>
+        <rect :x="widget.height + 4" :y="widget.height - 16" :width="widget.width - widget.height * 1.5 - 4" height="4" rx="2" fill="#ffffff" fill-opacity=".2" />
+        <rect :x="widget.height + 4" :y="widget.height - 16" :width="(widget.width - widget.height * 1.5 - 4) * .38" height="4" rx="2" fill="#c7aef7" />
       </g>
       <g v-else-if="widget.kind === 'jetlink_status'">
         <rect x="0" y="0" :width="widget.width" :height="widget.height" :rx="widget.height / 2" fill="#0f0d17" :fill-opacity="(widget.opacity ?? 85) / 100 * .92" />
         <circle :cx="widget.height / 2" :cy="widget.height / 2" r="9" fill="#46c86e" />
-        <text :x="widget.height - 6" y="38" font-size="28" font-weight="600" fill="#f5f2fc">Big model</text>
-        <text :x="widget.height - 6" y="66" font-size="22" fill="#b8b2c8">Jetlink</text>
+        <text :x="widget.height - 6" y="38" font-size="28" font-weight="600" fill="#f5f2fc">Link up</text>
+        <text :x="widget.height - 6" y="66" font-size="22" fill="#b8b2c8">Jetlink • iPhone</text>
         <text :x="widget.width - 70" :y="widget.height / 2 + 12" text-anchor="end" font-size="34" font-weight="600" fill="#f5f2fc">24.6</text>
         <text :x="widget.width - 30" :y="widget.height / 2 + 12" text-anchor="end" font-size="22" fill="#b8b2c8">ms</text>
       </g>
@@ -386,8 +222,7 @@ export const LayoutWidgetPreview = {
             :y="profile === 'large' ? 72 : 24" text-anchor="middle" dominant-baseline="middle"
             :font-size="profile === 'large' ? 64 : 50" font-weight="500">{{ label }}</text>
         </template>
-        <text v-else :x="widget.width / 2" :y="profile === 'large' ? 72 : 24" text-anchor="middle"
-          dominant-baseline="middle" :font-size="profile === 'large' ? 48 : 28">Toyota guidance</text>
+        <text v-else-if="profile === 'large'" :x="widget.width / 2" y="72" text-anchor="middle" dominant-baseline="middle" font-size="64">Use limit 49</text>
       </template>
       <g v-else-if="widget.kind === 'torque_bar'" fill="none" stroke="white" stroke-linecap="round">
         <path :d="'M 12 ' + widget.height * .8 + ' Q ' + widget.width / 2 + ' ' + widget.height * .55 + ' ' + (widget.width - 12) + ' ' + widget.height * .8" :stroke-width="widget.height * .18" opacity=".3" />
@@ -416,141 +251,23 @@ export const LayoutWidgetPreview = {
           <path d="M38 48 H78 M67 37 L78 48 L67 59" />
         </g>
       </g>
-      <g v-else-if="widget.kind === 'uniden_alerts'">
-        <g :transform="'scale(' + (widget.scale ?? 100) / 100 + ')'">
-        <rect x="1" y="1" width="458" height="74" rx="14" :stroke="palette.cardBorder || '#9d72ff'" stroke-width="2" :fill="palette.cardFill || '#10191f'" :fill-opacity="(100 - (widget.transparency ?? 8)) / 100" />
-        <text x="24" y="51" font-size="36" font-weight="600" fill="#ff5b65">KA</text>
-        <text x="97" y="48" font-size="28" font-weight="600" :fill="palette.text || '#ffffff'">35.500 GHz</text>
-        <rect v-for="i in 8" :key="i" :x="283 + (i - 1) * 11" :y="53 - (8 + (i - 1) * 3)" width="8" :height="8 + (i - 1) * 3"
-          :fill="i > 6 ? '#35434d' : unidenSignal(6, i - 1)" />
-        <path d="M411 25 L426 51 L396 51 Z" fill="#ff5b65" />
-        </g>
-      </g>
-      <g v-else-if="widget.kind === 'network_signal' && !['horizontal', 'vertical'].includes(widget.size)" :transform="'scale(' + widget.width / 112 + ')'">
-        <rect width="112" :height="(widget.bluetooth === false ? 102 : 140) + (widget.wifiName ? 22 : 0)" rx="24" fill="#0f0d17" :fill-opacity="235 / 255 * (widget.opacity ?? 85) / 100" />
-        <text v-if="widget.wifiName" x="56" y="21" text-anchor="middle" font-size="13" font-weight="600" fill="#f5f2fc">Home Wi-Fi</text>
-        <g :transform="widget.wifiName ? 'translate(0 22)' : null">
-          <g>
-            <path d="M17.0 78.5A45 45 0 0 1 11.2 60.7" fill="none" stroke="#f5f2fc" stroke-width="7" />
-            <path d="M95.0 78.5A45 45 0 0 0 100.8 60.7" fill="none" stroke="#c7aef7" stroke-width="7" />
-            <path d="M11.0 56.8A45 45 0 0 1 14.6 38.4" fill="none" stroke="#f5f2fc" stroke-width="7" />
-            <path d="M101.0 56.8A45 45 0 0 0 97.4 38.4" fill="none" stroke="#c7aef7" stroke-width="7" />
-            <path d="M16.3 34.9A45 45 0 0 1 28.3 20.5" fill="none" stroke="#ffffff2b" stroke-width="7" />
-            <path d="M95.7 34.9A45 45 0 0 0 83.7 20.5" fill="none" stroke="#c7aef7" stroke-width="7" />
-            <path d="M31.5 18.3A45 45 0 0 1 49.0 11.6" fill="none" stroke="#ffffff2b" stroke-width="7" />
-            <path d="M80.5 18.3A45 45 0 0 0 63.0 11.6" fill="none" stroke="#c7aef7" stroke-width="7" />
-          </g>
-          <g :transform="widget.bluetooth === false ? 'translate(0 8)' : null">
-            <rect x="34.0" y="48" width="3" height="4" fill="#b8b2c8" />
-            <rect x="38.5" y="44" width="3" height="8" fill="#b8b2c8" />
-            <rect x="43.0" y="40" width="3" height="12" fill="#b8b2c8" />
-            <rect x="47.5" y="36" width="3" height="16" fill="#b8b2c8" />
-            <circle cx="69" cy="50" r="2" fill="#c7aef7" />
-            <path d="M64.2 45.7A6.5 6.5 0 0 1 73.8 45.7" fill="none" stroke="#c7aef7" stroke-width="2.4" />
-            <path d="M60.5 42.3A11.5 11.5 0 0 1 77.5 42.3" fill="none" stroke="#c7aef7" stroke-width="2.4" />
-          </g>
-          <g v-if="widget.bluetooth !== false">
-            <path d="M56 68V82M56 68L60.5 71.5L51.5 78M51.5 72L60.5 78.5L56 82" fill="none" stroke="#6eafff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-            <text x="56" y="107" text-anchor="middle" font-size="13" font-weight="600" fill="#f5f2fc">iPhone 15</text>
-            <text x="56" y="125" text-anchor="middle" font-size="13" font-weight="600" fill="#f5f2fc">AirPods</text>
-          </g>
-          <text v-else x="56" y="84" text-anchor="middle" font-size="14" font-weight="600" fill="#f5f2fc">Wi-Fi</text>
-        </g>
-      </g>
-      <g v-else-if="widget.kind === 'network_signal' && widget.size === 'horizontal'" :transform="'scale(' + widget.width / 268 + ')'">
-        <rect width="268" :height="112 + (widget.wifiName ? 22 : 0)" rx="28" fill="#0f0d17" :fill-opacity="235 / 255 * (widget.opacity ?? 85) / 100" />
-        <text v-if="widget.wifiName" x="24" y="23" font-size="16" font-weight="600" fill="#f5f2fc">Home Wi-Fi</text>
-        <g :transform="widget.wifiName ? 'translate(0 22)' : null">
-          <g :transform="widget.bluetooth === false ? 'translate(0 11)' : null">
-            <rect x="24" y="29" width="3" height="4" fill="#b8b2c8" />
-            <rect x="28.5" y="25" width="3" height="8" fill="#b8b2c8" />
-            <rect x="33" y="21" width="3" height="12" fill="#b8b2c8" />
-            <rect x="37.5" y="17" width="3" height="16" fill="#b8b2c8" />
-            <text x="50" y="33" font-size="20" font-weight="600" fill="#b8b2c8">LTE</text>
-            <rect x="122" y="22" width="27" height="8" rx="4" fill="#f5f2fc" />
-            <rect x="154" y="22" width="27" height="8" rx="4" fill="#f5f2fc" />
-            <rect x="186" y="22" width="27" height="8" rx="4" fill="#ffffff2b" />
-            <rect x="218" y="22" width="27" height="8" rx="4" fill="#ffffff2b" />
-          </g>
-          <g :transform="widget.bluetooth === false ? 'translate(0 19)' : null">
-            <circle cx="33" cy="61" r="2" fill="#c7aef7" />
-            <path d="M28.17 56.65A6.5 6.5 0 0 1 37.83 56.65" fill="none" stroke="#c7aef7" stroke-width="2.4" />
-            <path d="M24.45 53.30A11.5 11.5 0 0 1 41.55 53.30" fill="none" stroke="#c7aef7" stroke-width="2.4" />
-            <text x="50" y="63" font-size="20" font-weight="600" fill="#f5f2fc">Wi-Fi</text>
-            <rect x="122" y="52" width="27" height="8" rx="4" fill="#c7aef7" />
-            <rect x="154" y="52" width="27" height="8" rx="4" fill="#c7aef7" />
-            <rect x="186" y="52" width="27" height="8" rx="4" fill="#c7aef7" />
-            <rect x="218" y="52" width="27" height="8" rx="4" fill="#c7aef7" />
-          </g>
-          <g v-if="widget.bluetooth !== false">
-            <path d="M33 79V93M33 79L37.5 82.5L28.5 89M28.5 83L37.5 89.5L33 93" fill="none" stroke="#6eafff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-            <text x="50" y="92" font-size="18" font-weight="600" fill="#f5f2fc">iPhone 15</text>
-            <circle cx="155" cy="86" r="4" fill="#6eafff" />
-            <text x="245" y="91" text-anchor="end" font-size="16" font-weight="600" fill="#6eafff">Connected</text>
-          </g>
-        </g>
-      </g>
-      <g v-else-if="widget.kind === 'network_signal' && widget.size === 'vertical'" :transform="'scale(' + widget.width / 112 + ')'">
-        <rect width="112" :height="196 + (widget.wifiName ? 22 : 0)" rx="24" fill="#0f0d17" :fill-opacity="235 / 255 * (widget.opacity ?? 85) / 100" />
-        <text v-if="widget.wifiName" x="56" y="21" text-anchor="middle" font-size="13" font-weight="600" fill="#f5f2fc">Home Wi-Fi</text>
-        <g :transform="widget.wifiName ? 'translate(0 22)' : null">
-          <g :transform="widget.bluetooth === false ? 'translate(0 14)' : null">
-            <circle cx="34" cy="90" r="8" fill="#f5f2fc" />
-            <circle cx="34" cy="68" r="8" fill="#f5f2fc" />
-            <circle cx="34" cy="46" r="8" fill="#ffffff2b" />
-            <circle cx="34" cy="24" r="8" fill="#ffffff2b" />
-            <rect x="25.75" y="122" width="3" height="4" fill="#b8b2c8" />
-            <rect x="30.25" y="118" width="3" height="8" fill="#b8b2c8" />
-            <rect x="34.75" y="114" width="3" height="12" fill="#b8b2c8" />
-            <rect x="39.25" y="110" width="3" height="16" fill="#b8b2c8" />
-            <text x="34" y="147" text-anchor="middle" font-size="13" font-weight="600" fill="#b8b2c8">LTE</text>
-            <circle cx="78" cy="90" r="8" fill="#c7aef7" />
-            <circle cx="78" cy="68" r="8" fill="#c7aef7" />
-            <circle cx="78" cy="46" r="8" fill="#c7aef7" />
-            <circle cx="78" cy="24" r="8" fill="#c7aef7" />
-            <circle cx="78" cy="124" r="2" fill="#c7aef7" />
-            <path d="M73.17 119.65A6.5 6.5 0 0 1 82.83 119.65" fill="none" stroke="#c7aef7" stroke-width="2.4" />
-            <path d="M69.45 116.30A11.5 11.5 0 0 1 86.55 116.30" fill="none" stroke="#c7aef7" stroke-width="2.4" />
-            <text x="78" y="147" text-anchor="middle" font-size="13" font-weight="600" fill="#f5f2fc">Wi-Fi</text>
-          </g>
-          <g v-if="widget.bluetooth !== false">
-            <line x1="14" y1="156" x2="98" y2="156" stroke="#ffffff2b" stroke-width="1.5" />
-            <path d="M24 169V183M24 169L28.5 172.5L19.5 179M19.5 173L28.5 179.5L24 183" fill="none" stroke="#6eafff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-            <text x="35" y="181" font-size="13" font-weight="600" fill="#f5f2fc">iPhone 15</text>
-          </g>
-        </g>
-      </g>
       <g v-else-if="widget.kind === 'jetlink_status'">
         <rect :width="widget.width" :height="widget.height" :rx="widget.height / 2" fill="#0f0d17" :fill-opacity="235 / 255 * (widget.opacity ?? 85) / 100" />
         <circle :cx="widget.height / 2" :cy="widget.height / 2" r="9" fill="#46c86e" />
-        <text :x="widget.height - 6" y="40" font-size="28" font-weight="600" fill="#f5f2fc">Big model</text>
-        <text :x="widget.height - 6" y="68" font-size="22" fill="#b8b2c8">Jetlink</text>
+        <text :x="widget.height - 6" y="40" font-size="28" font-weight="600" fill="#f5f2fc">Link up</text>
+        <text :x="widget.height - 6" y="68" font-size="22" fill="#b8b2c8">Jetlink • iPhone</text>
         <text :x="widget.width - 70" y="52" text-anchor="end" font-size="34" font-weight="600" fill="#f5f2fc">24.6</text>
         <text :x="widget.width - 30" y="52" text-anchor="end" font-size="22" fill="#b8b2c8">ms</text>
       </g>
       <g v-else-if="widget.kind === 'nav_card'">
         <rect x="1" y="1" :width="widget.width - 2" :height="widget.height - 2" rx="39" fill="#0f0d17f5" stroke="#a07edcbe" stroke-width="2" />
-        <path :transform="'translate(' + (widget.width - 54) + ' 26)'" d="M0 4.2 L9.9 0 L20.1 4.2 L30 0 V25.8 L20.1 30 L9.9 25.8 L0 30 Z M9.9 0 V25.8 M20.1 4.2 V30" fill="none" stroke="#a07edce6" stroke-width="2.7" stroke-linejoin="round" />
-        <text v-if="!googleRoutes" x="24" y="66" font-size="54" font-weight="700" fill="white">500 ft</text>
-        <text v-if="!googleRoutes" x="24" y="100" font-size="30" font-weight="600" fill="#ded6f4">Turn right onto Las Vegas Blvd</text>
-        <template v-if="!googleRoutes">
-        <g v-for="(lane, i) in [['S', 0], ['S', 0], ['S', 0], ['R', 1], ['R', 1]]" :key="i" :transform="'translate(' + ((widget.width - 320) / 2 + i * 66) + ' 116)'">
-          <rect width="56" height="44" rx="13" :fill="lane[1] ? '#4e3e80' : '#222030'" />
-          <g transform="translate(28 22)" fill="none" :stroke="lane[1] ? '#ffffff' : '#70688a'" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round">
-            <path v-if="lane[0] === 'S'" d="M0 13 V-12 M-8 -4 L0 -12 L8 -4" />
-            <path v-else d="M-8 13 V0 Q-8 -7 -1 -7 H10 M4 -13 L10 -7 L4 -1" />
-          </g>
+        <g transform="translate(24 47) scale(1.7)" fill="none" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M16 56 V30 Q16 18 28 18 H46" /><path d="M38 6 L50 18 L38 30" />
         </g>
-        </template>
-        <template v-else>
-          <g transform="translate(24 28)" fill="none" stroke="white" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 56 V28 Q12 18 22 18 H48 M34 4 L48 18 L34 32" /></g>
-          <text x="104" y="66" font-size="54" font-weight="700" fill="white">500 ft</text>
-          <text x="104" y="100" font-size="30" font-weight="600" fill="#ded6f4">Las Vegas Blvd</text>
-          <text :x="widget.width - 24" y="150" text-anchor="end" font-size="27" font-weight="500" fill="#d6d2e2">2.4 mi | 6 min</text>
-        </template>
-        <rect x="24" y="171" :width="widget.width - 48 - 190" height="6" rx="3" fill="#a07edc3c" />
-        <rect x="24" y="171" :width="(widget.width - 48 - 190) * .35" height="6" rx="3" fill="#b296ff" />
-        <text :x="widget.width - 24" y="182" text-anchor="end" font-size="22" font-weight="600" fill="#ebe1ff">ETA 3:51 PM</text>
+        <text x="148" y="78" font-size="40" font-weight="600" fill="white">Turn right onto</text>
+        <text x="148" y="121" font-size="40" font-weight="600" fill="white">Las Vegas Blvd</text>
+        <text x="148" y="170" font-size="30" font-weight="700" fill="#c7aef7">500 ft</text>
+        <text :x="widget.width - 24" y="170" text-anchor="end" font-size="22" fill="#bebbc5">4.2 mi - 9 min</text>
       </g>
       <g v-else-if="widget.kind === 'nav_map'">
         <defs>
@@ -559,15 +276,6 @@ export const LayoutWidgetPreview = {
         </defs>
         <g mask="url(#gx-nav-map-mask)" :transform="'scale(' + widget.width / 600 + ' ' + widget.height / 450 + ')'" fill="none" stroke-linecap="round" stroke-linejoin="round">
           <g :opacity="(widget.opacity ?? 50) / 100">
-          <template v-if="googleMap">
-            <rect width="600" height="450" fill="#e8eaed" />
-            <path d="M440 -20 L640 -20 L640 200 Q540 170 440 -20 Z" fill="#aadaff" />
-            <path d="M-20 120 Q200 150 640 90 M90 -20 L130 480 M430 -20 Q400 200 470 480 M-20 330 L640 360 M260 -20 L250 480" stroke="#ffffff" stroke-width="12" vector-effect="non-scaling-stroke" />
-            <path d="M-20 120 Q200 150 640 90" stroke="#34a853" stroke-width="5" vector-effect="non-scaling-stroke" />
-            <path d="M-20 330 L640 360" stroke="#ea4335" stroke-width="5" vector-effect="non-scaling-stroke" />
-            <path d="M260 -20 L250 480" stroke="#fbbc04" stroke-width="5" vector-effect="non-scaling-stroke" />
-          </template>
-          <template v-else>
           <rect width="600" height="450" fill="#0b0f16" opacity=".45" />
           <g stroke="#000000a8" vector-effect="non-scaling-stroke">
             <path d="M-20 120 Q200 150 640 90 M90 -20 L130 480 M430 -20 Q400 200 470 480 M-20 330 L640 360 M260 -20 L250 480" stroke-width="11" vector-effect="non-scaling-stroke" />
@@ -575,7 +283,6 @@ export const LayoutWidgetPreview = {
           <path d="M-20 120 Q200 150 640 90 M-20 330 L640 360" stroke="#ebf0f5" stroke-width="6" vector-effect="non-scaling-stroke" />
           <path d="M90 -20 L130 480 M430 -20 Q400 200 470 480" stroke="#bec8d2" stroke-width="4" vector-effect="non-scaling-stroke" />
           <path d="M260 -20 L250 480" stroke="#ffc45c" stroke-width="8" vector-effect="non-scaling-stroke" />
-          </template>
           </g>
           <path d="M300 330 Q258 300 254 250 L262 -20" stroke="#8f6bff55" stroke-width="20" vector-effect="non-scaling-stroke" />
           <path d="M300 330 Q258 300 254 250 L262 -20" stroke="#a98bff" stroke-width="9" vector-effect="non-scaling-stroke" />
@@ -583,11 +290,6 @@ export const LayoutWidgetPreview = {
         <g :transform="'translate(' + widget.width / 2 + ' ' + widget.height * .7 + ')'">
           <circle r="22" fill="#8f6bff40" /><path d="M0 -17 L13 13 L0 6 L-13 13 Z" fill="white" stroke="#6e4fe0" stroke-width="3" stroke-linejoin="round" />
         </g>
-        <g :transform="'translate(' + widget.width / 2 + ' ' + (widget.height * .68 + 38) + ')'">
-          <rect :x="-roadNameSize * 4.4" y="0" :width="roadNameSize * 8.8" :height="roadNameSize * 1.55" :rx="roadNameSize * .78" fill="#080c14be" />
-          <text x="0" :y="roadNameSize * 1.12" text-anchor="middle" :font-size="roadNameSize" fill="#eceef6">Desert Inn Road</text>
-        </g>
-        <text v-if="googleMap" x="16" :y="widget.height - 12" :font-size="Math.max(14, Math.min(widget.width, widget.height) * .04)" font-weight="600" fill="#f0f2fa">Google Maps</text>
       </g>
       <template v-else>
         <rect :width="widget.width" :height="widget.height" :fill="palette.cardFill" :stroke="palette.cardBorder" />
@@ -641,8 +343,7 @@ export const OnroadLayoutPage = {
       if (update.data) {
         if (!state.data && update.data.activeProfile) state.profile = update.data.activeProfile
         if (!update.data.metadata.profiles[state.profile]) state.profile = Object.keys(update.data.metadata.profiles)[0]
-        if (!Object.hasOwn(update.data.metadata.profiles[state.profile].widgets, state.selected) ||
-            update.data.metadata.profiles[state.profile].widgets[state.selected]?.hidden === true)
+        if (!Object.hasOwn(update.data.metadata.profiles[state.profile].widgets, state.selected))
           state.selected = Object.keys(update.data.metadata.profiles[state.profile].widgets)[0] || null
         state.colorError = ""
         state.placementError = ""
@@ -651,7 +352,7 @@ export const OnroadLayoutPage = {
       for (const [key, value] of Object.entries(update)) {
         if (JSON.stringify(state[key]) !== JSON.stringify(value)) state[key] = value
       }
-      if (draftChanged || ["Colors and both layouts saved.", "StarPort layout saved."].some(saved => update.notice?.startsWith(saved))) state.history = { undo: [], redo: [], group: null }
+      if (draftChanged || ["Colors and both layouts saved.", "Android Auto layout saved."].some(saved => update.notice?.startsWith(saved))) state.history = { undo: [], redo: [], group: null }
     }
     const feed = new OnroadLayoutFeed({ projection: props.projection, unauthorized: props.unauthorized, publish: apply })
     watch(() => !!state.drag || !!state.layerDrag, (dragging) => { if (!dragging && deferred) apply({}) }, { flush: "sync" })
@@ -718,24 +419,6 @@ export const OnroadLayoutPage = {
     sceneBorder() { return previewScene(this.state.scene).border },
     expandedRoad() { return !this.projection && this.state.profile === "large" && this.displayValue("DeveloperSidebar") !== "On" },
     roadBounds() { return this.expandedRoad ? { ...this.profile.bounds, width: this.profile.bounds.width + 300 } : this.profile.bounds },
-    favoriteZones() {
-      const zones = this.profile?.inputZones || []
-      if (this.state.profile !== "large" || this.projection) return zones
-      const height = 180 * Math.max(.35, Math.min(this.roadBounds.width / 2160, this.roadBounds.height / 1080))
-      return zones.map(zone => ({ ...zone, y: this.roadBounds.y + this.roadBounds.height - height, height }))
-    },
-    quickSelectShelves() {
-      if (this.projection || this.state.profile !== 'large') return []
-      return (this.profile?.quickSelectShelves || []).map(zone => ({ ...zone,
-        conflicts: ['current_speed', 'cruise_limits'].filter(id => {
-          const widget = this.widgets.find(widget => widget.id === id)
-          const at = this.layout?.[id]
-          if (!widget || !at?.enabled) return false
-          const x = this.previewX(id)
-          return x < zone.x + zone.width && zone.x < x + widget.width && at.y < zone.y + zone.height && zone.y < at.y + widget.height
-        }) }))
-    },
-    quickSelectBlocked() { return this.quickSelectShelves.length === 2 && this.quickSelectShelves.every(zone => zone.conflicts.length) },
     // Widgets reach the whole screen only while the developer sidebar is hidden; otherwise the road beside it.
     limitProfile() {
       if (this.expandedRoad || this.projection || !this.profile) return this.profile
@@ -752,7 +435,7 @@ export const OnroadLayoutPage = {
       return ["pip_left", "pip_right"].some(id => this.state.draft?.layouts?.large?.[id]?.enabled === true)
     },
     widgets() { return Object.entries(this.profile?.widgets || {})
-      .filter(([id, widget]) => widget.hidden !== true && (widget.available !== false || this.layout?.[id]?.enabled))
+      .filter(([id, widget]) => widget.available !== false || this.layout?.[id]?.enabled)
       .map(([id, widget]) => ({ id, ...widget })) },
     layerWidgets() {
       return orderedWidgetIds(this.state.draft, this.state.data.metadata, this.state.profile)
@@ -768,34 +451,6 @@ export const OnroadLayoutPage = {
         width: widget.width, height: widget.height + widget.visualInsetTop + widget.visualInsetBottom
       }
     },
-    // On touch, a magnified copy of the area around the dragged widget sits clear of the finger.
-    loupe() {
-      const drag = this.state.drag
-      if (!drag?.touch || !drag.moved || drag.resize || (drag.fromTray && !drag.inside) || drag.clientX == null || !this.$refs.preview) return null
-      const rect = this.$refs.preview.getBoundingClientRect(), viewWidth = window.innerWidth, viewHeight = window.innerHeight
-      if (!rect.width) return null
-      const gap = 48, edge = 8, x = drag.clientX, y = drag.clientY
-      let width = Math.round(Math.max(150, Math.min(240, viewWidth / 2 - 8))), height = Math.round(width * .62)
-      let left = Math.max(edge, Math.min(viewWidth - width - edge, x - width / 2)), top = y - gap - height
-      if (top < edge) {
-        // No room above: sit beside the finger on the roomier side, narrower if needed, before falling back to below.
-        const right = x < viewWidth / 2, beside = Math.min(width, Math.floor((right ? viewWidth - x : x) - 24 - edge))
-        if (beside >= 140) {
-          width = beside
-          height = Math.round(width * .62)
-          left = right ? x + 24 : x - 24 - width
-          top = Math.max(edge, Math.min(viewHeight - height - edge, y - height / 2))
-        } else top = Math.min(viewHeight - height - edge, y + gap)
-      }
-      const [widgetWidth, widgetHeight] = widgetSize(this.profile.widgets[drag.id], this.layout[drag.id])
-      const span = Math.max(width / (rect.width / this.profile.width * 2), widgetWidth * 1.5, widgetHeight * 1.5 * width / height)
-      const spanY = span * height / width
-      const centerX = this.previewX(drag.id) + widgetWidth / 2, centerY = this.layout[drag.id].y + widgetHeight / 2
-      return {
-        viewBox: [centerX - span / 2, centerY - spanY / 2, span, spanY].map(value => Math.round(value * 10) / 10).join(" "),
-        style: { left: Math.round(left) + "px", top: Math.round(top) + "px", width: width + "px", height: height + "px" }
-      }
-    },
     activeWidgets() { return this.widgets.filter(({ id }) => this.layout[id].enabled) },
     renderWidgets() {
       return this.layerWidgets.filter(item => !this.previewHidden(item.id)).reverse().map((item) => {
@@ -807,14 +462,9 @@ export const OnroadLayoutPage = {
         const [width, height] = widgetSize(widget, this.layout[widget.id])
         return {
           ...widget, width, height, ...(widget.iconSize ? { display: this.layout[widget.id].display } : {}),
-          ...(widget.kind === "uniden_alerts" ? { transparency: this.layout[widget.id].transparency, scale: this.layout[widget.id].scale } : {}),
           ...(widget.opacity ? { opacity: this.layout[widget.id].opacity } : {}),
           ...(widget.backgroundToggle ? { background: this.layout[widget.id].background } : {}),
-          ...(widget.collapseToggle ? { collapse: this.layout[widget.id].collapse } : {}),
-          ...(widget.bluetoothToggle ? { bluetooth: this.layout[widget.id].bluetooth } : {}),
-          ...(widget.wifiNameHeight ? { wifiName: this.layout[widget.id].wifiName } : {}),
-          ...(widget.sizes ? { size: this.layout[widget.id].size } : {}),
-          ...(widget.scale ? { scale: this.layout[widget.id].scale } : {})
+          ...(widget.collapseToggle ? { collapse: this.layout[widget.id].collapse } : {})
         }
       })
     },
@@ -869,7 +519,7 @@ export const OnroadLayoutPage = {
     stockConfidence() { return this.displayValue("StockConfidenceBallWidget") === "Off" },
   },
   mounted() {
-    if (this.mode === "local") { this.feed.start(); loadNavLook() }
+    if (this.mode === "local") this.feed.start()
     this._stopUnloadGuard = guardUnload(() => this.dirty || this.state.status === "saving")
     // Double-tap zoom stays off across the whole page, app bar included, while a maker page is open.
     if (makerPagesOpen++ === 0) document.documentElement.classList.add("gx-maker-open")
@@ -910,12 +560,7 @@ export const OnroadLayoutPage = {
       this.state.showEditingAids = !this.state.showEditingAids
       try { localStorage.setItem(aidsPreferenceKey, this.state.showEditingAids ? "1" : "0") } catch { }
     },
-    sceneHidden(id) {
-      const { scene, profile, art } = this.state
-      const sprites = art?.status === "ready" && art.scene === scene && art.profile === (this.projection ? "projection" : profile) ?
-        art.sprites?.sprites : undefined
-      return sceneHidesWidget(scene, profile, id, this.layout, this.profile?.widgets, sprites)
-    },
+    sceneHidden(id) { return sceneHidesWidget(this.state.scene, this.state.profile, id, this.layout, this.profile?.widgets) },
     previewHidden(id) {
       if (this.projection && id === "car_exit") return false
       if (this.sceneHidden(id)) return true
@@ -1214,14 +859,6 @@ export const OnroadLayoutPage = {
       this.state.notice = ""
       showDraftChange()
     },
-    setReduceMotion(value) {
-      if (this.state.profile !== 'large' || !this.editable || this.projection || this.state.drag || this.state.layerDrag || typeof value !== 'boolean') return
-      const before = clone(this.state.draft)
-      this.state.draft.reduceMotion = value
-      this.recordChange(before)
-      this.state.notice = ''
-      showDraftChange()
-    },
     displayRow(key) { return this.state.data?.display?.find(row => row.key === key) },
     displayValue(key) { return this.state.draft?.display?.[key] },
     displayAvailable(row) { return !!row?.available && (!row.requires || this.displayValue(row.requires) === "On") },
@@ -1252,19 +889,10 @@ export const OnroadLayoutPage = {
       if (!this.editable || this.state.drag || this.state.layerDrag || this.selectedWidget?.kind !== "cruise_limits" ||
         !["speedSources", "speedSourcesCard"].includes(key)) return
       const before = clone(this.state.draft), oldHeight = this.profile.widgets.cruise_limits.height
-      const widgets = this.state.data.metadata.profiles[this.state.profile].widgets
-      const dx = widgets.speed_limit_actions.default.x - widgets.cruise_limits.default.x
-      const gap = widgets.speed_limit_actions.default.y - widgets.cruise_limits.default.y - widgets.cruise_limits.height
-      const sourceGap = widgets.cruise_limits.sourcesExtent?.actionGap ?? gap
-      const oldGap = this.state.draft.speedSources === true ? sourceGap : gap
       this.state.draft[key] = value === true
       const card = this.layout.cruise_limits, actions = this.layout.speed_limit_actions, height = this.profile.widgets.cruise_limits.height
       // Actions that sat right under the card follow its new bottom; both stay on screen.
-      if (actions && actions.x === card.x + dx && actions.y === card.y + oldHeight + oldGap) {
-        const nextGap = this.state.draft.speedSources === true ? sourceGap : gap
-        card.y = Math.min(card.y, placementLimits(this.limitProfile, "speed_limit_actions", this.layout).maxY - height - nextGap)
-        actions.y = card.y + height + nextGap
-      }
+      if (actions && actions.x === card.x && actions.y === card.y + oldHeight + 22) actions.y = card.y + height + 22
       for (const id of ["cruise_limits", "speed_limit_actions"].filter(id => this.layout[id])) {
         const limits = placementLimits(this.limitProfile, id, this.layout)
         this.layout[id].y = Math.max(limits.minY, Math.min(this.layout[id].y, limits.maxY))
@@ -1277,7 +905,7 @@ export const OnroadLayoutPage = {
       const before = clone(this.state.draft)
       this.state.draft.largeUiGammaTrial = value === "On"
       this.recordChange(before)
-      this.state.notice = "Save to apply the camera effect on StarPort."
+      this.state.notice = "Save to apply the camera effect on Android Auto."
     },
     setProjectionDisplay(key, value) {
       if (!this.projection || !this.editable || this.state.drag || this.state.layerDrag || !PROJECTION_DISPLAY_SWITCHES.includes(key)) return
@@ -1285,7 +913,7 @@ export const OnroadLayoutPage = {
       const before = clone(this.state.draft)
       this.state.draft[key] = value === "On"
       this.recordChange(before)
-      this.state.notice = "Save to apply the screen options on StarPort."
+      this.state.notice = "Save to apply the screen options on Android Auto."
     },
     setProjectionLeadInfo(value) {
       if (!this.projection || !this.editable || this.state.drag || this.state.layerDrag ||
@@ -1293,7 +921,7 @@ export const OnroadLayoutPage = {
       const before = clone(this.state.draft)
       this.state.draft.leadInfo = value
       this.recordChange(before)
-      this.state.notice = "Save to apply the screen options on StarPort."
+      this.state.notice = "Save to apply the screen options on Android Auto."
     },
     projectionLeadInfoRow() {
       const marker = this.state.draft.leadIndicator === true
@@ -1429,28 +1057,6 @@ export const OnroadLayoutPage = {
         axis === "height" ? number : this.selectedPosition.height)
       event.target.value = this.selectedPosition[axis]
     },
-    setUnidenDisplay(field, value) {
-      if (!this.editable || this.state.drag || this.state.layerDrag || this.selectedWidget?.kind !== 'uniden_alerts') return
-      const range = { transparency: [0, 100], scale: [50, 150] }[field]
-      if (range ? !Number.isInteger(value) || value < range[0] || value > range[1] :
-          !['hide_when_no_alert', 'hide_quiet_ride', 'hide_mute_memory'].includes(field) || typeof value !== 'boolean') return
-      this.finishColorEdit()
-      const before = clone(this.state.draft)
-      this.selectedPosition[field] = value
-      this.recordChange(before, this.state.profile + ":" + this.state.selected + ":" + field)
-      this.state.notice = ""
-    },
-    scaleInput(event) {
-      const value = Number(event.target.value), range = this.selectedWidget?.scale
-      if (!this.editable || this.state.drag || this.state.layerDrag || !range || !Number.isInteger(value) || value < range.min || value > range.max) return
-      const before = clone(this.state.draft)
-      this.selectedPosition.scale = value
-      // Growing back toward full size may overhang the screen edge; pull it back in.
-      Object.assign(this.selectedPosition, clampPlacement(this.limitProfile, this.state.selected,
-        this.selectedPosition.x, this.selectedPosition.y, this.layout))
-      this.recordChange(before, this.state.profile + ":" + this.state.selected + ":scale")
-      this.state.notice = ""
-    },
     opacityInput(event) {
       const value = Number(event.target.value), range = this.selectedWidget?.opacity
       if (!this.editable || this.state.drag || this.state.layerDrag || !range || !Number.isInteger(value) || value < range.min || value > range.max) return
@@ -1466,40 +1072,11 @@ export const OnroadLayoutPage = {
       this.recordChange(before)
       this.state.notice = ""
     },
-    setWidgetSize(size) {
-      if (!this.editable || this.state.drag || this.state.layerDrag || !this.selectedWidget?.sizes ||
-        !Object.hasOwn(this.selectedWidget.sizes, size)) return
-      this.finishColorEdit()
-      const before = clone(this.state.draft)
-      this.selectedPosition.size = size
-      Object.assign(this.selectedPosition, clampPlacement(this.limitProfile, this.state.selected,
-        this.selectedPosition.x, this.selectedPosition.y, this.layout))
-      this.recordChange(before)
-      this.state.notice = ""
-    },
     setWidgetCollapse(value) {
       if (!this.editable || this.state.drag || this.state.layerDrag || !this.selectedWidget?.collapseToggle) return
       this.finishColorEdit()
       const before = clone(this.state.draft)
       this.selectedPosition.collapse = value === 'On'
-      this.recordChange(before)
-      this.state.notice = ""
-    },
-    setWidgetBluetooth(value) {
-      if (!this.editable || this.state.drag || this.state.layerDrag || !this.selectedWidget?.bluetoothToggle) return
-      this.finishColorEdit()
-      const before = clone(this.state.draft)
-      this.selectedPosition.bluetooth = value === 'On'
-      this.recordChange(before)
-      this.state.notice = ""
-    },
-    setWidgetWifiName(value) {
-      if (!this.editable || this.state.drag || this.state.layerDrag || !this.selectedWidget?.wifiNameHeight) return
-      this.finishColorEdit()
-      const before = clone(this.state.draft)
-      this.selectedPosition.wifiName = value === 'On'
-      Object.assign(this.selectedPosition, clampPlacement(this.limitProfile, this.state.selected,
-        this.selectedPosition.x, this.selectedPosition.y, this.layout))
       this.recordChange(before)
       this.state.notice = ""
     },
@@ -1526,8 +1103,6 @@ export const OnroadLayoutPage = {
       // A finger wobbles a few pixels on every tap; only a deliberate move drags the widget.
       if (!drag.moved && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < DRAG_SLOP) return
       drag.moved = true
-      drag.clientX = event.clientX
-      drag.clientY = event.clientY
       drag.inside = point.x >= 0 && point.y >= 0 && point.x <= this.profile.width && point.y <= this.profile.height
       if (!drag.fromTray || drag.inside) {
         const raw = { x: point.x - drag.offsetX, y: point.y - drag.offsetY }

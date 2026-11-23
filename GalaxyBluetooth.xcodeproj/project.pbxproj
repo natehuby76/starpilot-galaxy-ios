@@ -35,8 +35,8 @@ CAFE0000000000000000004B = {isa = PBXTargetDependency; target = 34A04005BCAF206E
 5A4E0000000000000000001A /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 5A4E0000000000000000001B /* StarPilotShare */ = {isa = PBXNativeTarget; buildConfigurationList = 5A4E0000000000000000001C; buildPhases = (5A4E00000000000000000018, 5A4E00000000000000000019, 5A4E0000000000000000001A); buildRules = (); dependencies = (); name = StarPilotShare; productName = StarPilotShare; productReference = 5A4E00000000000000000015; productType = "com.apple.product-type.app-extension"; };
 5A4E0000000000000000001C /* Build configuration list for PBXNativeTarget "StarPilotShare" */ = {isa = XCConfigurationList; buildConfigurations = (5A4E0000000000000000001D, 5A4E0000000000000000001E); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
-5A4E0000000000000000001D /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_ENTITLEMENTS = StarPilotShare/StarPilotShare.entitlements; CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = 5P9DLC338G; APPLICATION_EXTENSION_API_ONLY = YES; SKIP_INSTALL = YES; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = StarPilotShare/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks"); PRODUCT_BUNDLE_IDENTIFIER = link.galaxy.bluetooth.natehuby76.share; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = 1; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; }; name = Debug; };
-5A4E0000000000000000001E /* Release */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_ENTITLEMENTS = StarPilotShare/StarPilotShare.entitlements; CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = 5P9DLC338G; APPLICATION_EXTENSION_API_ONLY = YES; SKIP_INSTALL = YES; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = StarPilotShare/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks"); PRODUCT_BUNDLE_IDENTIFIER = link.galaxy.bluetooth.natehuby76.share; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = 1; SWIFT_OPTIMIZATION_LEVEL = "-O"; }; name = Release; };
+5A4E0000000000000000001D /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_ENTITLEMENTS = StarPilotShare/StarPilotShare.entitlements; CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = 5P9DLC338G; APPLICATION_EXTENSION_API_ONLY = YES; SKIP_INSTALL = YES; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = StarPilotShare/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks"); PRODUCT_BUNDLE_IDENTIFIER = link.galaxy.bluetooth.natehuby76.share; "PRODUCT_BUNDLE_IDENTIFIER[sdk=iphonesimulator*]" = link.galaxy.bluetooth.natehuby76.preview.share; "CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]" = ""; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = 1; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; }; name = Debug; };
+5A4E0000000000000000001E /* Release */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_ENTITLEMENTS = StarPilotShare/StarPilotShare.entitlements; CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = 5P9DLC338G; APPLICATION_EXTENSION_API_ONLY = YES; SKIP_INSTALL = YES; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = StarPilotShare/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks"); PRODUCT_BUNDLE_IDENTIFIER = link.galaxy.bluetooth.natehuby76.share; "PRODUCT_BUNDLE_IDENTIFIER[sdk=iphonesimulator*]" = link.galaxy.bluetooth.natehuby76.preview.share; "CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]" = ""; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = 1; SWIFT_OPTIMIZATION_LEVEL = "-O"; }; name = Release; };
 5A4E0000000000000000001F /* Embed Foundation Extensions */ = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = ""; dstSubfolderSpec = 13; files = (5A4E00000000000000000016); name = "Embed Foundation Extensions"; runOnlyForDeploymentPostprocessing = 0; };
 5A4E00000000000000000020 = {isa = PBXContainerItemProxy; containerPortal = 244210E48437B6556980A702; proxyType = 1; remoteGlobalIDString = 5A4E0000000000000000001B; remoteInfo = StarPilotShare; };
 5A4E00000000000000000021 = {isa = PBXTargetDependency; target = 5A4E0000000000000000001B; targetProxy = 5A4E00000000000000000020; };
@@ -396,9 +396,9 @@ D15C00000000000000000901 /* DiscordReports.swift in Sources */,
 				DEVELOPMENT_TEAM = 5P9DLC338G;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = GalaxyBluetooth/Info.plist;
+				INFOPLIST_FILE = GalaxyBluetooth/Info.plist; "INFOPLIST_FILE[sdk=iphonesimulator*]" = GalaxyBluetooth/SimulatorPreview.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				PRODUCT_BUNDLE_IDENTIFIER = link.galaxy.bluetooth.natehuby76;
+				PRODUCT_BUNDLE_IDENTIFIER = link.galaxy.bluetooth.natehuby76; "PRODUCT_BUNDLE_IDENTIFIER[sdk=iphonesimulator*]" = link.galaxy.bluetooth.natehuby76.preview; "CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]" = "";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -418,9 +418,9 @@ D15C00000000000000000901 /* DiscordReports.swift in Sources */,
 				DEVELOPMENT_TEAM = 5P9DLC338G;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = GalaxyBluetooth/Info.plist;
+				INFOPLIST_FILE = GalaxyBluetooth/Info.plist; "INFOPLIST_FILE[sdk=iphonesimulator*]" = GalaxyBluetooth/SimulatorPreview.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				PRODUCT_BUNDLE_IDENTIFIER = link.galaxy.bluetooth.natehuby76;
+				PRODUCT_BUNDLE_IDENTIFIER = link.galaxy.bluetooth.natehuby76; "PRODUCT_BUNDLE_IDENTIFIER[sdk=iphonesimulator*]" = link.galaxy.bluetooth.natehuby76.preview; "CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]" = "";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_OPTIMIZATION_LEVEL = "-O";

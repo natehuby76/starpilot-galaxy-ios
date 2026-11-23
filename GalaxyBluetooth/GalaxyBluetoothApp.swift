@@ -1153,8 +1153,9 @@ struct GalaxyRootView: View {
                 model.tab = .navigation
                 return
             }
-            if ProcessInfo.processInfo.arguments.contains("--preview-galaxy") {
-                if ProcessInfo.processInfo.arguments.contains("--simulator-toggles"), let root = Bundle.main.url(forResource: "SimulatorGalaxy", withExtension: nil) {
+            let simulatorDemo = Bundle.main.bundleIdentifier == "link.galaxy.bluetooth.natehuby76.preview" && ProcessInfo.processInfo.environment["GALAXY_UI_FIXTURE"] == nil
+            if simulatorDemo || ProcessInfo.processInfo.arguments.contains("--preview-galaxy") {
+                if simulatorDemo || ProcessInfo.processInfo.arguments.contains("--simulator-toggles"), let root = Bundle.main.url(forResource: "SimulatorGalaxy", withExtension: nil) {
                     server.useWebRoot(root)
                 } else if let fixture = ProcessInfo.processInfo.environment["GALAXY_UI_FIXTURE"] {
                     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("galaxy-layout-preview", isDirectory: true)

@@ -1,11 +1,29 @@
-<!doctype html><html data-theme="light"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<link rel="stylesheet" href="./vendor/bootstrap-icons/bootstrap-icons.min.css"><link rel="stylesheet" href="./css/galaxy.css"><link rel="stylesheet" href="./css/settings.css">
-<div id="galaxy-bg"></div><div id="galaxy-app"><div class="gx-app"><header class="gx-appbar"><button class="gx-appbar__back" aria-label="Back">Back</button><button class="gx-appbar__home">Home</button><button class="gx-search-toggle" aria-label="Search">Search</button><button class="gx-theme-toggle" aria-label="Switch to dark mode">Theme</button><button class="gx-appbar__menu">Menu</button></header><main class="gx-content"><div class="gx-route-stage"><div class="gx-route"><settings-page mode="local" :unauthorized="noop"></settings-page></div></div></main><bottom-nav path="/settings"></bottom-nav></div></div>
-<script type="module">
-import {createApp} from './vendor/vue/vue.esm-browser.js';
-import {SettingsPage} from './js/settings.js';
-import {BottomNav} from './js/bottom-nav.js';
-const originalFetch=window.fetch.bind(window);
-window.fetch=(url,opts)=>String(url).endsWith('/settings/pages/hub') ? Promise.resolve(Response.json({page:'hub',vehicleIdentified:true,rows:[['aol','Always On Lateral'],['lane_change','Lane Change'],['torque','Steering and Torque'],['lane','Lane Centering']].map(([page,label])=>({page,label,key:page,available:true,value:'',choices:[]}))})) : originalFetch(url,opts);
-createApp({components:{SettingsPage,BottomNav},methods:{noop(){}}}).mount('#galaxy-app');
-</script></html>
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <script src="./simulator-data.js"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#6f42a6">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Galaxy">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Galaxy</title>
+  <link rel="icon" type="image/svg+xml" href="./assets/galaxy-icon.svg">
+  <link rel="apple-touch-icon" sizes="180x180" href="./assets/galaxy-icon-180.png">
+  <link rel="manifest" href="./manifest.webmanifest" crossorigin="use-credentials">
+  <link rel="stylesheet" href="./vendor/bootstrap-icons/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="./css/galaxy.css">
+  <link rel="stylesheet" href="./css/settings.css">
+  <link rel="stylesheet" href="./css/navigation.css">
+</head>
+<body>
+  <div id="galaxy-bg" aria-hidden="true"></div>
+  <section id="galaxy-boot" class="gx-boot" role="status">
+    <img class="gx-boot__logo" src="./assets/galaxy-icon.svg" width="160" height="160" alt="" /><h1>Galaxy</h1><div class="gx-boot__orbit" aria-hidden="true"></div><p>Plotting the stars...</p><button type="button" class="gx-icon-btn" aria-label="Refresh Galaxy" title="Refresh Galaxy" hidden><i class="bi bi-arrow-clockwise" aria-hidden="true"></i></button>
+    <noscript>Enable JavaScript to open Galaxy.</noscript>
+  </section>
+  <div id="galaxy-app" v-cloak></div>
+  <script type="module" src="./js/boot.js"></script>
+</body>
+</html>
