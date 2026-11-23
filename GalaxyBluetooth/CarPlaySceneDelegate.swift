@@ -57,7 +57,7 @@ final class CarPlaySceneDelegate: NSObject, CPTemplateApplicationSceneDelegate, 
     private var navigationTabs: CPTabBarTemplate?
     private var navigationMenu: CPListTemplate?
     private enum NavigationAction: Equatable {
-        case info, map, start(UUID), directions, phone, place(SavedPlace)
+        case info, map, start(UUID), phoneTrip(UUID), directions, phone, place(SavedPlace)
     }
     private struct NavigationRow: Equatable {
         let title: String
@@ -90,7 +90,7 @@ final class CarPlaySceneDelegate: NSObject, CPTemplateApplicationSceneDelegate, 
         sessionConfiguration = CPSessionConfiguration(delegate: self)
         let model = AppModel.shared
         model.setCarPlayActive(true)
-        model.$navigationAlpha.combineLatest(model.$developerMode)
+        model.$navigationEnabled
             .receive(on: RunLoop.main).sink { [weak self] _ in self?.configureMode() }
             .store(in: &subscriptions)
         model.navigationServices.navigation.$navigating.removeDuplicates()
@@ -227,7 +227,17 @@ final class CarPlaySceneDelegate: NSObject, CPTemplateApplicationSceneDelegate, 
                 let detail = nav.busy ? (nav.sendToComma ? "Sending destination…" : "Getting directions…") : destination.address
                 rows.append(.init(title: destination.name, detail: detail, icon: "mappin.circle.fill", action: .info))
                 if !nav.busy {
-                    if nav.sendToComma && !services.connection.connected {
+                    if nav.phoneTripPreferred {
+                        if !services.connection.connected {
+                            rows.append(.init(title: "Connect to your comma", detail: "Required to start the iPhone route", icon: "car.fill", action: .info))
+                        } else if nav.route == nil {
+                            rows.append(.init(title: "Get directions", detail: "Calculate the iPhone route", icon: "map", action: .directions))
+                        } else if nav.route?.commaPreview == nil || nav.plannedStart != nil {
+                            rows.append(.init(title: "Route unavailable for handoff", detail: "Choose a shorter trip from your current location", icon: "map", action: .info))
+                        } else {
+                            rows.append(.init(title: "Start Route", detail: "Use the selected iPhone route on comma", icon: "car.fill", action: .phoneTrip(destination.id)))
+                        }
+                    } else if nav.sendToComma && !services.connection.connected {
                         rows.append(.init(title: "Get iPhone directions", detail: "Comma is disconnected", icon: "iphone", action: .phone))
                     } else if !nav.sendToComma && nav.route == nil {
                         rows.append(.init(title: "Get directions", detail: "Preview the route on iPhone", icon: "arrow.triangle.turn.up.right.diamond", action: .directions))
@@ -272,10 +282,15 @@ final class CarPlaySceneDelegate: NSObject, CPTemplateApplicationSceneDelegate, 
                     case .info: break
                     case .map:
                         self.openNavigation()
-                    case .start(let destinationID):
+                    case .start(let destinationID), .phoneTrip(let destinationID):
                         Task { @MainActor in
                             guard nav.destination?.id == destinationID else { return }
-                            await nav.start(connection: services.connection)
+                            let handoff = row.action == .phoneTrip(destinationID)
+                            if handoff {
+                                guard !nav.sendToComma, services.connection.connected, nav.plannedStart == nil,
+                                      UserDefaults.standard.bool(forKey: "navigation.offerPhoneTrip"), nav.route?.commaPreview != nil else { return }
+                            }
+                            await nav.start(connection: services.connection, phoneRouteOnComma: handoff)
                             self.refreshNavigation()
                         }
                     case .directions:
@@ -320,6 +335,7 @@ final class CarPlaySceneDelegate: NSObject, CPTemplateApplicationSceneDelegate, 
         nav.checkCommaFreshness()
         mapController?.update(nav)
         let status: String? = !nav.navigating ? "Trip ended" :
+            nav.reroutingPhoneTrip && !nav.commaFeedReady ? "Rerouting…" :
             nav.usingComma && !nav.commaFeedReady ? "Waiting for comma" :
             (nav.usingComma ? nav.commaPosition == nil : nav.goodLocation == nil) ? "Waiting for GPS" : nil
         if template.trailingNavigationBarButtons.first?.title != status {
@@ -329,12 +345,19 @@ final class CarPlaySceneDelegate: NSObject, CPTemplateApplicationSceneDelegate, 
                 }]
             } ?? []
         }
-        guard nav.navigating, let destination = nav.destination,
-              nav.usingComma ? nav.commaFeedReady : nav.goodLocation != nil else {
+        guard nav.navigating, let destination = nav.destination else {
             stopGuidance()
             return
         }
         let key = "\(destination.coordinate.latitude),\(destination.coordinate.longitude)"
+        guard nav.usingComma ? nav.commaFeedReady : nav.goodLocation != nil else {
+            if tripDestination != key { stopGuidance() }
+            else if maneuver != nil {
+                navigationSession?.upcomingManeuvers = []
+                maneuver = nil
+            }
+            return
+        }
         if tripDestination != key || navigationSession == nil {
             stopGuidance()
             let origin = nav.usingComma ? nav.commaPosition : nav.goodLocation?.coordinate
@@ -1335,7 +1358,7 @@ final class CarPlayDashboardSceneDelegate: NSObject, CPTemplateApplicationDashbo
         self.dashboardController = dashboardController
         dashboardController.shortcutButtons = []
         let model = AppModel.shared
-        model.$navigationAlpha.combineLatest(model.$developerMode)
+        model.$navigationEnabled
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.refresh() }
             .store(in: &subscriptions)
@@ -1428,7 +1451,7 @@ private final class CompanionCarPlayMap: UIViewController, MKMapViewDelegate {
         let x = CarDisplayMapOptions.followX(in: safe.isEmpty ? frame : safe, dashboard: dashboard,
                                              rightToLeft: map.effectiveUserInterfaceLayoutDirection == .rightToLeft)
         let anchor = CGPoint(x: x,
-                             y: frame.minY + max(frame.height * 0.45, frame.height - (dashboard ? 30 : min(68, frame.height * 0.26))))
+                             y: frame.minY + max(frame.height * 0.45, frame.height - (dashboard ? 26 : min(60, frame.height * 0.23))))
         let ground = map.convert(anchor, toCoordinateFrom: map)
         if CLLocationCoordinate2DIsValid(ground), current.centerCoordinateDistance > 0 {
             let center = MKMapPoint(current.centerCoordinate)
@@ -1450,22 +1473,33 @@ private final class CompanionCarPlayMap: UIViewController, MKMapViewDelegate {
         view = UIView()
     }
 
+    private var appleStyle: GalaxyAppleMap?
     private func installAppleMap() {
+        let style = UserDefaults.standard.string(forKey: "navigation.appleStyle").flatMap(GalaxyAppleMap.init(rawValue:)) ?? .streets
+        if style != appleStyle {
+            let config = style.configuration
+            (config as? MKStandardMapConfiguration)?.pointOfInterestFilter = .excludingAll
+            map.preferredConfiguration = config
+            appleStyle = style
+        }
         guard map.superview == nil else { return }
         map.frame = view.bounds
         map.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(map)
         map.delegate = self
-        let configuration = MKStandardMapConfiguration(elevationStyle: .realistic)
-        configuration.pointOfInterestFilter = .excludingAll
-        map.preferredConfiguration = configuration
         map.showsCompass = false
+        map.showsScale = false
         map.isRotateEnabled = false
     }
     func update(_ navigation: NavigationModel) {
         loadViewIfNeeded()
         if let token = NavigationMapPreference.activeToken {
-            let options = CarDisplayMapOptions(overview: showingOverview, zoomFactor: zoomFactor, dashboard: dashboard)
+            let phoneScene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+                .first { $0.session.role == .windowApplication }
+            let height = view.bounds.height
+            let options = CarDisplayMapOptions(overview: showingOverview, zoomFactor: zoomFactor, dashboard: dashboard,
+                phoneMapHeight: phoneScene?.coordinateSpace.bounds.height ?? height, mapHeight: height,
+                maximumFPS: Float(max(1, min(60, view.window?.screen.maximumFramesPerSecond ?? 60))))
             if lastMapboxToken != token || lastMapboxOptions != options {
                 let screen = MapboxDriveMap(navigation: navigation, token: token,
                                            markerPerspective: markerPerspective, tripFrame: .zero, carDisplay: options)

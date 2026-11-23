@@ -120,7 +120,7 @@ final class IntegrationUITests: XCTestCase {
     }
     func testTunnelSetupValidation() {
         let app = XCUIApplication()
-        app.launchArguments = ["-galaxy.app.developerMode", "NO", "-galaxy.app.navigationAlpha", "NO"]
+        app.launchArguments = ["-galaxy.app.developerMode", "NO", "-galaxy.app.navigationEnabled", "NO"]
         app.launch()
         let setup = app.buttons["tunnel-setup"]
         XCTAssertTrue(setup.waitForExistence(timeout: 15))
@@ -136,7 +136,7 @@ final class IntegrationUITests: XCTestCase {
     }
     func testConnectionOrderSheet() {
         let app = XCUIApplication()
-        app.launchArguments = ["-galaxy.app.developerMode", "NO", "-galaxy.app.navigationAlpha", "NO", "-galaxy.connection.mode", "automatic"]
+        app.launchArguments = ["-galaxy.app.developerMode", "NO", "-galaxy.app.navigationEnabled", "NO", "-galaxy.connection.mode", "automatic"]
         app.launch()
         XCTAssertTrue(app.buttons["Set order"].waitForExistence(timeout: 15))
         app.buttons["Set order"].tap()
@@ -158,7 +158,7 @@ final class IntegrationUITests: XCTestCase {
     }
     func testDiagnosticsExport() {
         let app = XCUIApplication()
-        app.launchArguments = ["-galaxy.app.developerMode", "YES", "-galaxy.app.navigationAlpha", "YES"]
+        app.launchArguments = ["-galaxy.app.developerMode", "YES", "-galaxy.app.navigationEnabled", "YES"]
         app.launch()
         XCTAssertTrue(app.buttons["Developer options"].waitForExistence(timeout: 10))
         app.buttons["Developer options"].tap()
@@ -169,6 +169,52 @@ final class IntegrationUITests: XCTestCase {
         XCTAssertTrue(app.cells["Save to Files"].waitForExistence(timeout: 10))
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Share diagnostics text file"; shot.lifetime = .keepAlways; add(shot)
     }
+    func testDuoNavigationPlannerAndDrive() throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] == "iPhone19,4", "Duo layout")
+        let app = XCUIApplication()
+        XCUIDevice.shared.orientation = .portrait
+        defer { XCUIDevice.shared.orientation = .portrait }
+        func capture(_ name: String) {
+            let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+        app.launchArguments = ["--preview-navigation-planner", "--ui-testing", "-navigation.offerPhoneTrip", "YES"]
+        app.launch()
+        let field = app.textFields["map-search"]
+        XCTAssertTrue(field.waitForExistence(timeout: 20))
+        capture("Duo destination planner")
+        field.tap()
+        field.typeText("Test")
+        let result = app.buttons["place-search-result"].firstMatch
+        XCTAssertTrue(result.waitForExistence(timeout: 5))
+        capture("Duo inline search")
+        result.tap()
+        let directions = app.buttons["Start Route"]
+        XCTAssertTrue(directions.waitForExistence(timeout: 5))
+        XCTAssertFalse(directions.isEnabled, "Sending the route requires a paired comma connection")
+        XCTAssertTrue(app.frame.contains(directions.frame))
+        XCTAssertFalse(app.segmentedControls.buttons["Comma"].exists)
+        capture("Duo route preview")
+        XCUIDevice.shared.orientation = .landscapeLeft
+        XCTAssertTrue(app.frame.contains(directions.frame))
+        XCTAssertTrue(app.buttons["Close destination"].isHittable)
+        let alternate = app.buttons["duo-route-1"]
+        for _ in 0..<3 where !alternate.isHittable { app.scrollViews["duo-itinerary"].swipeUp() }
+        XCTAssertTrue(alternate.isHittable)
+        alternate.tap()
+        XCTAssertTrue(alternate.isSelected)
+        capture("Duo landscape planner")
+        app.terminate()
+        XCUIDevice.shared.orientation = .portrait
+        app.launchArguments = ["--preview-route"]
+        app.launch()
+        XCTAssertTrue(app.buttons["End route"].waitForExistence(timeout: 12))
+        XCTAssertTrue(app.buttons["Navigation options"].isHittable)
+        capture("Duo active guidance")
+    }
+
     func testActiveRoutePreview() {
         let app = XCUIApplication(); app.launchArguments = ["--preview-route"]; app.launch()
         XCTAssertTrue(app.staticTexts["Turn right onto Bremner Boulevard"].waitForExistence(timeout: 15))
@@ -178,7 +224,7 @@ final class IntegrationUITests: XCTestCase {
     }
     func testSelectedDestinationWithoutPhoneRoute() {
         let app = XCUIApplication()
-        app.launchArguments = ["--ui-testing", "-galaxy.app.developerMode", "YES", "-galaxy.app.navigationAlpha", "YES"]
+        app.launchArguments = ["--ui-testing", "-galaxy.app.developerMode", "YES", "-galaxy.app.navigationEnabled", "YES"]
         app.launch()
         if app.buttons["expand-app-tabs"].isHittable { app.buttons["expand-app-tabs"].tap() }
         let tab = app.buttons["main-tab-Navigation"]
@@ -186,7 +232,8 @@ final class IntegrationUITests: XCTestCase {
         tab.tap()
         app.buttons["map-search"].tap()
         let search = app.searchFields.firstMatch
-        search.tap(); search.typeText("Test")
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.typeText("Test")
         let place = app.buttons["place-search-result"].firstMatch
         XCTAssertTrue(place.waitForExistence(timeout: 8))
         place.tap()
@@ -209,32 +256,20 @@ final class IntegrationUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Get directions"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["Start on iPhone"].exists)
     }
-    func testRegularModeAndAlphaOptIn() {
+    func testNavigationSettingsWithoutDeveloperMode() {
         let app = XCUIApplication()
-        app.launchArguments = ["-galaxy.app.developerMode", "NO", "-galaxy.app.navigationAlpha", "NO"]
+        app.launchArguments = ["-galaxy.app.developerMode", "NO", "-galaxy.app.navigationEnabled", "YES"]
         app.launch()
-        XCTAssertTrue(app.staticTexts["Your comma"].waitForExistence(timeout: 15))
-        XCTAssertFalse(app.buttons["main-tab-Navigation"].exists)
-        XCTAssertFalse(app.switches["navigation-alpha-toggle"].exists)
-        let regular = XCTAttachment(screenshot: app.screenshot()); regular.name = "Regular StarPilot BT"; regular.lifetime = .keepAlways; add(regular)
-        let developer = app.switches["developer-mode-toggle"]
-        openSettingsSection("Support & developer", containing: developer, in: app)
-        if !developer.isHittable { app.swipeUp() }
-        developer.tap()
-        let alpha = app.switches["navigation-alpha-toggle"]
-        XCTAssertTrue(alpha.waitForExistence(timeout: 5))
-        if !alpha.isHittable { app.swipeUp() }
-        alpha.tap()
-        app.alerts.buttons["Enable alpha"].tap()
-        XCTAssertTrue(app.buttons["expand-app-tabs"].waitForExistence(timeout: 5))
-        alpha.tap()
-        XCTAssertFalse(app.buttons["expand-app-tabs"].exists)
-        developer.tap()
-        XCTAssertFalse(app.switches["navigation-alpha-toggle"].exists)
+        let settings = app.buttons["navigation-map-settings"]
+        openSettingsSection("Navigation", containing: settings, in: app)
+        XCTAssertTrue(app.buttons["settings-open-navigation"].exists)
+        settings.tap()
+        XCTAssertTrue(app.navigationBars["Navigation settings"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.switches["Enable navigation"].exists)
     }
     func testNavigationAndSharedSettings() {
         let app = XCUIApplication()
-        app.launchArguments = ["-galaxy.app.developerMode", "YES", "-galaxy.app.navigationAlpha", "YES"]
+        app.launchArguments = ["-galaxy.app.developerMode", "YES", "-galaxy.app.navigationEnabled", "YES"]
         app.launch()
         XCTAssertTrue(app.buttons["main-tab-Navigation"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.staticTexts["Your comma"].exists)

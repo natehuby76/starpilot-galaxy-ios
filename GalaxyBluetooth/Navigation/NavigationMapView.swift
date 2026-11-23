@@ -12,6 +12,7 @@ extension NavigationMapMotion {
 @MainActor
 struct CommaFollowingMap: UIViewRepresentable {
     @ObservedObject var navigation: NavigationModel
+    @AppStorage("navigation.appleStyle") private var appleStyle = GalaxyAppleMap.streets
     var bottomInset: CGFloat
 
     func makeCoordinator() -> Coordinator { Coordinator(navigation: navigation) }
@@ -20,12 +21,18 @@ struct CommaFollowingMap: UIViewRepresentable {
         map.delegate = context.coordinator
         map.showsUserLocation = false
         map.showsCompass = false
-        map.preferredConfiguration = MKStandardMapConfiguration(elevationStyle: .realistic)
+        map.showsScale = false
+        map.preferredConfiguration = appleStyle.configuration
+        map.appearance = appleStyle
         map.onLayout = { [weak coordinator = context.coordinator] in coordinator?.layoutChanged() }
         context.coordinator.map = map
         return map
     }
     func updateUIView(_ map: FollowingMapView, context: Context) {
+        if map.appearance != appleStyle {
+            map.preferredConfiguration = appleStyle.configuration
+            map.appearance = appleStyle
+        }
         context.coordinator.update(bottomInset: bottomInset)
     }
     static func dismantleUIView(_ map: FollowingMapView, coordinator: Coordinator) {
@@ -35,6 +42,7 @@ struct CommaFollowingMap: UIViewRepresentable {
     }
 
     final class FollowingMapView: MKMapView {
+        var appearance: GalaxyAppleMap?
         var onLayout: (() -> Void)?
         private var previousSize = CGSize.zero
         override func layoutSubviews() {
@@ -177,7 +185,7 @@ struct CommaFollowingMap: UIViewRepresentable {
                     distanceToTurn: navigation.distanceToTurn)
                 origin = displayed ?? point; target = point
                 originHeading = heading
-                targetHeading = NavigationMapMotion.heading(from: heading, to: navigation.commaHeading, fraction: 1)
+                targetHeading = navigation.commaHeading >= 0 ? navigation.commaHeading : heading
                 let jump = displayed.map {
                     CLLocation(latitude: $0.latitude, longitude: $0.longitude)
                         .distance(from: CLLocation(latitude: point.latitude, longitude: point.longitude))

@@ -20,13 +20,10 @@ struct ConnectionSettingsView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.openURL) private var openURL
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @SceneStorage("settings.navigationExpanded") private var navigationExpanded = false
     @AppStorage(AppPreference.openGalaxy) private var autoOpenGalaxy = true
     @AppStorage(AppPreference.arrival) private var showArrival = true
     @AppStorage(AppPreference.toolbarLabels) private var toolbarLabels = true
     @AppStorage(AppPreference.liveScreenAwake) private var keepLiveAwake = true
-    @AppStorage(AppPreference.rememberDestinations) private var rememberDestinations = true
-    @AppStorage(NavigationDistanceUnits.key) private var distanceUnits = NavigationDistanceUnits.system
     @AppStorage(AppAppearance.key) private var appearance = AppAppearance.system
     @AppStorage("galaxy.app.language") private var language = "en"
     @AppStorage("galaxy.galacticalAnimations") private var galacticalAnimations = true
@@ -37,14 +34,12 @@ struct ConnectionSettingsView: View {
     @State private var showOrder = false
     @State private var showTunnel = false
     @State private var advanced = false
+    @SceneStorage("settings.navigationExpanded") private var navigationExpanded = false
     @SceneStorage("settings.phoneExpanded") private var phoneExpanded = false
     @SceneStorage("settings.galaxyExpanded") private var galaxyExpanded = false
     @SceneStorage("settings.supportExpanded") private var supportExpanded = false
     @State private var confirmForget = false
     @State private var confirmPairingReset = false
-    @State private var confirmNavigationAlpha = false
-    @AppStorage(NavigationMapPreference.enabledKey) private var useMapbox = true
-    @AppStorage(NavigationMapPreference.tokenKey) private var mapboxToken = ""
     @State private var showMapSettings = false
     @State private var showPairingHelp = false
     @State private var checked = false
@@ -108,13 +103,7 @@ struct ConnectionSettingsView: View {
             ], startPoint: .top, endPoint: .bottom).ignoresSafeArea()
         }.foregroundStyle(Color.primary)
             .pageSheet(isPresented: $showMapSettings) {
-                NavigationMapSettings()
-            }
-            .alert("Enable navigation alpha?", isPresented: $confirmNavigationAlpha) {
-                Button("Cancel", role: .cancel) { }
-                Button("Enable alpha") { model.navigationAlpha = true }
-            } message: {
-                Text("Navigation and CarPlay maps are experimental and may stop working or show incorrect guidance. Check directions independently. You can turn this off at any time.")
+                NavigationMapSettings(model: model)
             }
             .onChange(of: connected) { _, _ in openReconnectedGalaxy() }
             .onChange(of: pairing) { _, value in if value { openAfterReconnect = false } }
@@ -180,7 +169,7 @@ struct ConnectionSettingsView: View {
                 Spacer(minLength: 0)
                 if !dynamicTypeSize.isAccessibilitySize {
                     ConnectionOrbit(route: connected ? model.transport.label : "", pairing: pairing)
-                        .scaleEffect(0.62).frame(width: 164, height: 64)
+                        .scaleEffect(x: 0.62, y: 0.62).frame(width: 164, height: 64)
                 }
             }
             let layout = wide ? AnyLayout(HStackLayout(alignment: .top, spacing: 22)) : AnyLayout(VStackLayout(spacing: 20))
@@ -465,6 +454,22 @@ struct ConnectionSettingsView: View {
 
     private func preferences() -> some View {
         VStack(spacing: 0) {
+            preferenceSection("Navigation", expanded: $navigationExpanded) {
+                if model.navigationEnabled {
+                    row(CompanionTab.navigation.icon, title: "Navigation map", subtitle: "Choose a destination or return to your trip") {
+                        Button { select(.navigation) } label: { Image(systemName: "chevron.right").frame(width: 44, height: 44) }
+                            .accessibilityLabel("Open navigation map")
+                            .accessibilityIdentifier("settings-open-navigation")
+                    }
+                    separator
+                }
+                row("map", title: "Navigation settings", subtitle: "Choose guidance, maps and route preferences") {
+                    Button { showMapSettings = true } label: { Image(systemName: "chevron.right").frame(width: 44, height: 44) }
+                        .accessibilityLabel("Open navigation settings")
+                        .accessibilityIdentifier("navigation-map-settings")
+                }
+            }
+            separator
             preferenceSection("Phone & alerts", expanded: $phoneExpanded) {
                 toggleRow("arrow.up.forward.app", title: "Open Galaxy after connecting", subtitle: "Switch from Settings when Galaxy is ready", isOn: $autoOpenGalaxy)
                 separator
@@ -526,23 +531,6 @@ struct ConnectionSettingsView: View {
                     .font(.system(size: 11)).foregroundStyle(muted)
             }
             separator
-            preferenceSection("Navigation", expanded: $navigationExpanded) {
-                Picker("Distance units", selection: $distanceUnits) {
-                    Text("System").tag(NavigationDistanceUnits.system)
-                    Text("Metric").tag(NavigationDistanceUnits.metric)
-                    Text("Imperial").tag(NavigationDistanceUnits.imperial)
-                }.pickerStyle(.menu)
-                separator
-                toggleRow("clock", title: "Remember destinations", subtitle: "Add destinations to Recents on this phone", isOn: $rememberDestinations)
-                separator
-                row("map", title: "Navigation map", subtitle: useMapbox && mapboxToken.hasPrefix("pk.") ? "Mapbox 3D" : "Apple Maps") {
-                    Button("Change") { showMapSettings = true }
-                        .frame(minHeight: 44)
-                        .accessibilityLabel("Change navigation map")
-                        .accessibilityIdentifier("navigation-map-settings")
-                }
-            }
-            separator
             preferenceSection("Support & developer", expanded: $supportExpanded) {
                 row("ladybug", title: "Logs & support", subtitle: "Report a problem or share diagnostics") {
                     Button { select(.logs) } label: { Image(systemName: "chevron.right").frame(width: 44, height: 44) }.accessibilityLabel("Open Logs & support")
@@ -554,11 +542,6 @@ struct ConnectionSettingsView: View {
                 if model.developerMode {
                     Divider().overlay(accent.opacity(0.12)).padding(.leading, 42)
                     toggleRow("sun.max", title: "Keep Live View awake", subtitle: "Keep the iPhone display on while Live View is open", isOn: $keepLiveAwake)
-                    separator
-                    row("location.fill", title: "Navigation alpha testing", subtitle: "Navigation UI and CarPlay maps · experimental") {
-                        Toggle("Navigation alpha testing", isOn: Binding(get: { model.navigationAlpha }, set: { if $0 { confirmNavigationAlpha = true } else { model.navigationAlpha = false } })).labelsHidden()
-                            .accessibilityIdentifier("navigation-alpha-toggle")
-                    }
 
                 }
             }

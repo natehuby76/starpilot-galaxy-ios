@@ -1,7 +1,57 @@
 import SwiftUI
 import MapKit
 
+enum ExternalNavigator: String, CaseIterable {
+    case google = "Google Maps app", waze = "Waze app"
+    func directions(to point: CLLocationCoordinate2D) -> URL? {
+        guard CLLocationCoordinate2DIsValid(point) else { return nil }
+        let coordinates = "\(point.latitude),\(point.longitude)"
+        var url = URLComponents()
+        url.scheme = "https"
+        switch self {
+        case .google:
+            url.host = "www.google.com"
+            url.path = "/maps/dir/"
+            url.queryItems = [URLQueryItem(name: "api", value: "1"), URLQueryItem(name: "destination", value: coordinates),
+                              URLQueryItem(name: "travelmode", value: "driving"), URLQueryItem(name: "dir_action", value: "navigate")]
+        case .waze:
+            url.host = "www.waze.com"
+            url.path = "/ul"
+            url.queryItems = [URLQueryItem(name: "ll", value: coordinates), URLQueryItem(name: "navigate", value: "yes")]
+        }
+        return url.url
+    }
+}
+
 struct PhoneRoute {
+    // A junction annotation describes the map. It doesn't assign right of way.
+    struct Intersection: Decodable {
+        let geometry_index: Int?
+        let location: [Double]?
+        let stop_sign, traffic_signal, yield_sign, railway_crossing: Bool?
+
+        var labels: [String] {
+            var result: [String] = []
+            if stop_sign == true { result.append("stop sign") }
+            if traffic_signal == true { result.append("traffic light") }
+            if yield_sign == true { result.append("yield sign") }
+            if railway_crossing == true { result.append("rail crossing") }
+            return result
+        }
+    }
+
+    struct MappedJunction {
+        let index: Int
+        let labels: String
+        let point: MKMapPoint
+    }
+
+    struct JunctionObservation: Equatable {
+        let index: Int
+        let labels: String
+        let meters: Int
+    }
+
     struct Step {
         var maneuverType: String? = nil
         var modifier: String? = nil
@@ -14,6 +64,41 @@ struct PhoneRoute {
     let expectedTravelTime: Double
     let polyline: MKPolyline
     let steps: [Step]
+    var commaPreview: Data? = nil
+    var junctions: [MappedJunction] = []
+
+    func upcomingJunction(at fix: CLLocation) -> JunctionObservation? {
+        guard fix.horizontalAccuracy >= 0, fix.horizontalAccuracy <= 15,
+              abs(fix.timestamp.timeIntervalSinceNow) <= 3, fix.speed >= 2, fix.course >= 0 else { return nil }
+        let position = MKMapPoint(fix.coordinate)
+        let points = polyline.points()
+        var closest: JunctionObservation?
+        for junction in junctions where position.distance(to: junction.point) <= 130 {
+            var downstream = 0.0
+            for index in stride(from: junction.index, to: 0, by: -1) {
+                let a = points[index - 1], b = points[index]
+                let length = a.distance(to: b)
+                if length < 0.1 { continue }
+                let dx = b.x - a.x, dy = b.y - a.y
+                let fraction = ((position.x - a.x) * dx + (position.y - a.y) * dy) / (dx * dx + dy * dy)
+                let heading = atan2(dx, -dy) * 180 / .pi
+                if (0...1).contains(fraction),
+                   cos((fix.course - heading) * .pi / 180) >= cos(30 * .pi / 180) {
+                    let projected = MKMapPoint(x: a.x + fraction * dx, y: a.y + fraction * dy)
+                    let ahead = downstream + (1 - fraction) * length
+                    if position.distance(to: projected) <= 12, (5...120).contains(ahead) {
+                        let meters = Int(ahead.rounded())
+                        if meters < (closest?.meters ?? Int.max) {
+                            closest = JunctionObservation(index: junction.index, labels: junction.labels, meters: meters)
+                        }
+                    }
+                }
+                downstream += length
+                if downstream > 120 { break }
+            }
+        }
+        return closest
+    }
 }
 
 extension PhoneRoute {
@@ -44,6 +129,24 @@ extension PhoneRoute {
                 let geometry: Geometry
                 let distance: Double
                 let maneuver: Maneuver
+                let duration: Double
+                // Optional map annotations must never prevent decoding normal directions.
+                let intersections: [Intersection]
+                private struct Entry: Decodable {
+                    let value: Intersection?
+                    init(from decoder: Decoder) { value = try? Intersection(from: decoder) }
+                }
+                enum CodingKeys: String, CodingKey {
+                    case geometry, distance, maneuver, duration, intersections
+                }
+                init(from decoder: Decoder) throws {
+                    let fields = try decoder.container(keyedBy: CodingKeys.self)
+                    geometry = try fields.decode(Geometry.self, forKey: .geometry)
+                    distance = try fields.decode(Double.self, forKey: .distance)
+                    maneuver = try fields.decode(Maneuver.self, forKey: .maneuver)
+                    duration = try fields.decode(Double.self, forKey: .duration)
+                    intersections = (try? fields.decode([Entry].self, forKey: .intersections))?.compactMap(\.value) ?? []
+                }
             }
             let steps: [Segment]
             let summary: String
@@ -57,17 +160,70 @@ extension PhoneRoute {
         let routes: [Route]
     }
 
+    static func movingCourse(_ fix: CLLocation, now: Date = Date()) -> Int? {
+        guard abs(fix.timestamp.timeIntervalSince(now)) <= 5, (0...25).contains(fix.horizontalAccuracy),
+              fix.speed >= 2, (0..<360).contains(fix.course), (0...45).contains(fix.courseAccuracy) else { return nil }
+        return Int(fix.course.rounded()) % 360
+    }
+
+    func offCourse(at fix: CLLocation) -> Bool {
+        guard abs(fix.timestamp.timeIntervalSinceNow) <= 5, (0...30).contains(fix.horizontalAccuracy),
+              polyline.pointCount >= 2 else { return false }
+        let position = MKMapPoint(fix.coordinate)
+        let points = polyline.points()
+        let course = Self.movingCourse(fix)
+        var nearest = Double.infinity
+        var compatible = Double.infinity
+        for index in 1..<polyline.pointCount {
+            let a = points[index - 1], b = points[index]
+            let dx = b.x - a.x, dy = b.y - a.y
+            let lengthSquared = dx * dx + dy * dy
+            guard lengthSquared > 0 else { continue }
+            let fraction = max(0, min(1, ((position.x - a.x) * dx + (position.y - a.y) * dy) / lengthSquared))
+            let distance = position.distance(to: MKMapPoint(x: a.x + fraction * dx, y: a.y + fraction * dy))
+            nearest = min(nearest, distance)
+            if let course, cos(Double(course) * .pi / 180 - atan2(dx, -dy)) >= -0.5 {
+                compatible = min(compatible, distance)
+            }
+        }
+        return nearest > max(60, fix.horizontalAccuracy * 2) ||
+            (course != nil && fix.speed >= 5 && compatible > max(30, nearest + 15))
+    }
+
     static func mapbox(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D,
-                       alternatives: Bool, token: String) async throws -> [PhoneRoute] {
+                       alternatives: Bool, token: String, bearing: Int? = nil) async throws -> [PhoneRoute] {
+        let endpoint = try mapboxURL(from: from, to: to, alternatives: alternatives, token: token, bearing: bearing)
+        let (data, response) = try await URLSession.shared.data(from: endpoint)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
+        return try decodeMapboxRoutes(data)
+    }
+
+    static func mapboxURL(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D, alternatives: Bool,
+                          token: String, bearing: Int?) throws -> URL {
         var url = URLComponents()
         url.scheme = "https"
         url.host = "api.mapbox.com"
-        url.path = "/directions/v5/mapbox/driving/\(from.longitude),\(from.latitude);\(to.longitude),\(to.latitude)"
+        let preferences = UserDefaults.standard
+        let profile = preferences.string(forKey: "navigation.phoneRouter") == "Mapbox Traffic" ? "driving-traffic" : "driving"
+        url.path = "/directions/v5/mapbox/\(profile)/\(from.longitude),\(from.latitude);\(to.longitude),\(to.latitude)"
         url.queryItems = ["access_token": token, "alternatives": String(alternatives), "steps": "true",
                           "geometries": "geojson", "overview": "full"].map { URLQueryItem(name: $0.key, value: $0.value) }
+        if let bearing { url.queryItems?.append(.init(name: "bearings", value: "\(bearing),45;")) }
+        let avoidances = [("navigation.avoidTolls", "toll"), ("navigation.avoidFerries", "ferry"), ("navigation.avoidMotorways", "motorway"),
+                          ("navigation.avoidUnpaved", "unpaved"), ("navigation.avoidCashTolls", "cash_only_tolls")]
+            .filter { preferences.bool(forKey: $0.0) }.map { $0.1 }
+        if !avoidances.isEmpty { url.queryItems?.append(URLQueryItem(name: "exclude", value: avoidances.joined(separator: ","))) }
+        if preferences.bool(forKey: "navigation.vehicleLimits") {
+            for (field, fallback) in [("max_height", 1.6), ("max_width", 1.9), ("max_weight", 2.5)] {
+                let value = preferences.object(forKey: "navigation." + field) as? Double ?? fallback
+                url.queryItems?.append(.init(name: field, value: String(value)))
+            }
+        }
         guard let endpoint = url.url else { throw URLError(.badURL) }
-        let (data, response) = try await URLSession.shared.data(from: endpoint)
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
+        return endpoint
+    }
+
+    static func decodeMapboxRoutes(_ data: Data) throws -> [PhoneRoute] {
         return try JSONDecoder().decode(Response.self, from: data).routes.map { route in
             let segments = route.legs.flatMap(\.steps)
             // Mapbox maneuvers describe the start of each segment. Galaxy announces
@@ -76,8 +232,33 @@ extension PhoneRoute {
                 Step(maneuverType: next.maneuver.type, modifier: next.maneuver.modifier,
                      instructions: next.maneuver.instruction, distance: current.distance, polyline: try current.geometry.line())
             }
+            var preview: Data?
+            if route.legs.count == 1, route.geometry.coordinates.count <= 1500, segments.count <= 256 {
+                let maneuvers: [[String: Any]] = segments.map { segment in
+                    ["distance": segment.distance, "duration": segment.duration,
+                     "maneuver": ["instruction": segment.maneuver.instruction, "type": segment.maneuver.type ?? "unknown",
+                                  "modifier": segment.maneuver.modifier ?? "none"]]
+                }
+                let document: [String: Any] = ["geometry": ["coordinates": route.geometry.coordinates],
+                    "distance": route.distance, "duration": route.duration, "legs": [["steps": maneuvers]]]
+                if let encoded = try? JSONSerialization.data(withJSONObject: ["version": 1, "route": document]),
+                   encoded.count <= 65536 { preview = encoded }
+            }
+            let line = try route.geometry.line()
+            var labelsByIndex: [Int: Set<String>] = [:]
+            if route.legs.count == 1 {
+                for feature in segments.flatMap(\.intersections) {
+                    guard let index = feature.geometry_index, index > 0, index < line.pointCount,
+                          let location = feature.location, location.count == 2,
+                          location == route.geometry.coordinates[index], !feature.labels.isEmpty else { continue }
+                    labelsByIndex[index, default: []].formUnion(feature.labels)
+                }
+            }
+            let junctions = labelsByIndex.map { index, labels in
+                MappedJunction(index: index, labels: labels.sorted().joined(separator: ", "), point: line.points()[index])
+            }.sorted { $0.index < $1.index }
             return PhoneRoute(name: route.legs.map(\.summary).joined(separator: ", "), distance: route.distance,
-                             expectedTravelTime: route.duration, polyline: try route.geometry.line(), steps: steps)
+                             expectedTravelTime: route.duration, polyline: line, steps: steps, commaPreview: preview, junctions: junctions)
         }
     }
 }
@@ -103,8 +284,23 @@ final class NavigationModel: NSObject, ObservableObject, @preconcurrency CLLocat
     @Published var results: [NavigationPlace] = []
     @Published var destination: NavigationPlace?
     @Published private(set) var plannedStart: NavigationPlace?
-    @Published var routes: [PhoneRoute] = []
-    @Published var selectedRoute = 0
+    @Published var routes: [PhoneRoute] = [] { didSet { updateJunction(nil) } }
+    @Published var selectedRoute = 0 { didSet { if oldValue != selectedRoute { updateJunction(nil) } } }
+    private var sentPhoneTripRevision: String?
+    private var confirmedPhoneTripRevision: String?
+    private var showingSentRoute: Bool {
+        commaFeedReady && sentPhoneTripRevision != nil && sentPhoneTripRevision == confirmedPhoneTripRevision
+    }
+    @Published private(set) var mappedJunction: PhoneRoute.JunctionObservation?
+    private func updateJunction(_ next: PhoneRoute.JunctionObservation?) {
+        guard next != mappedJunction else { return }
+        if next?.index != mappedJunction?.index || next?.labels != mappedJunction?.labels {
+            if let next {
+                onEvent?("Mapped junction: \(next.labels), route vertex \(next.index), \(next.meters) m ahead")
+            } else { onEvent?("Mapped junction cleared") }
+        }
+        mappedJunction = next
+    }
     @Published var usingComma = false
     @Published var commaPolyline: MKPolyline?
     @Published private(set) var positionDisplayGeneration = 0
@@ -141,6 +337,19 @@ final class NavigationModel: NSObject, ObservableObject, @preconcurrency CLLocat
     private var recalculating = false
     private var lastCalculation = Date.distantPast
     private var offRouteSamples = 0
+    private var lastDeviationFix = Date.distantPast
+    private var lastMovingFix: CLLocation?
+    private var nextRerouteAttempt = Date.distantPast
+    @Published private(set) var reroutingPhoneTrip = false
+
+    func departureBearing(at fix: CLLocation) -> Int? {
+        if let current = PhoneRoute.movingCourse(fix) { return current }
+        guard (0..<2).contains(fix.speed), let lastMovingFix,
+              (0...20).contains(fix.timestamp.timeIntervalSince(lastMovingFix.timestamp)),
+              abs(fix.timestamp.timeIntervalSinceNow) <= 5, (0...25).contains(fix.horizontalAccuracy),
+              fix.distance(from: lastMovingFix) <= 15 else { return nil }
+        return PhoneRoute.movingCourse(lastMovingFix, now: lastMovingFix.timestamp)
+    }
     private var stepIndex = 0
     private var phoneTurn = false
 
@@ -168,13 +377,17 @@ final class NavigationModel: NSObject, ObservableObject, @preconcurrency CLLocat
 #if targetEnvironment(simulator)
     func refreshPreviewPosition() { lastCommaSample = Date(); commaPositionSampleDate = Date(); locationMessage = "" }
 #endif
-    var commaHeading: Double { commaBearing }
+    var commaHeading: Double {
+        if let commaBearing { return commaBearing }
+        if let fix = goodLocation, let course = departureBearing(at: fix) { return Double(course) }
+        return -1
+    }
     private(set) var commaPositionSampleDate = Date.distantPast
     private var followCameraDistance: CLLocationDistance {
         NavigationMapMotion.cameraDistance(speed: max(0, goodLocation?.speed ?? 0),
             distanceToTurn: navigating ? distanceToTurn : 0)
     }
-    private var commaBearing: Double = 0
+    private var commaBearing: Double?
     private var lastCommaSample = Date.distantPast
     private var guidanceMaxAge: TimeInterval = 4
     private var cachedCommaPolyline: MKPolyline?
@@ -199,6 +412,7 @@ final class NavigationModel: NSObject, ObservableObject, @preconcurrency CLLocat
         foreground = active
         if active, [.authorizedWhenInUse, .authorizedAlways].contains(manager.authorizationStatus) { manager.startUpdatingLocation() }
         if !active {
+            updateJunction(nil)
             if usingComma { clearCommaDisplay("Reconnecting to comma…") }
             manager.stopUpdatingLocation()
             directions?.cancel(); cancelPlaceSearch()
@@ -225,9 +439,19 @@ final class NavigationModel: NSObject, ObservableObject, @preconcurrency CLLocat
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard foreground, let latest = locations.last else { return }
         location = latest
+        if PhoneRoute.movingCourse(latest) != nil { lastMovingFix = latest }
+        if navigating, !usingComma || showingSentRoute, UserDefaults.standard.bool(forKey: "navigation.mappedJunctions") {
+            updateJunction(route?.upcomingJunction(at: latest))
+        } else { updateJunction(nil) }
         guard let fresh = goodLocation else { locationMessage = "Waiting for a reliable GPS location."; return }
         locationMessage = ""
-        guard navigating, !usingComma, let route else { return }
+        guard navigating, let route, !usingComma || sentPhoneTripRevision != nil else { return }
+        if fresh.timestamp > lastDeviationFix {
+            if fresh.timestamp.timeIntervalSince(lastDeviationFix) > 5 { offRouteSamples = 0 }
+            lastDeviationFix = fresh.timestamp
+            offRouteSamples = route.offCourse(at: fresh) ? offRouteSamples + 1 : 0
+        }
+        guard !usingComma else { return }
         updateProgress(route, at: fresh)
         if followsUser {
             withAnimation(.linear(duration: UIAccessibility.isReduceMotionEnabled ? 0 : 0.8)) {
@@ -236,10 +460,9 @@ final class NavigationModel: NSObject, ObservableObject, @preconcurrency CLLocat
                     pitch: followPitch(cruising: 62, speed: fresh.speed)))
             }
         }
-        let deviation = distanceFromRoute(fresh.coordinate, polyline: route.polyline)
-        offRouteSamples = deviation > max(60, fresh.horizontalAccuracy * 2) ? offRouteSamples + 1 : 0
-        if !recalculating, Date().timeIntervalSince(lastCalculation) > 30,
+        if !recalculating, Date() >= nextRerouteAttempt,
            offRouteSamples >= 3 || Date().timeIntervalSince(lastCalculation) > 120 {
+            nextRerouteAttempt = Date().addingTimeInterval(15)
             Task { await calculateRoutes(refresh: true) }
         }
     }
@@ -260,7 +483,7 @@ final class NavigationModel: NSObject, ObservableObject, @preconcurrency CLLocat
         cancelPlaceSearch()
         let cleaned = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleaned.isEmpty else { return }
-        #if DEBUG
+        #if DEBUG || targetEnvironment(simulator)
         if ProcessInfo.processInfo.arguments.contains("--ui-testing") {
             results = query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? [] : [NavigationPlace(
                 item: MKMapItem(placemark: MKPlacemark(coordinate: CLLocationCoordinate2D(latitude: 43.65, longitude: -79.38))),
@@ -339,6 +562,8 @@ final class NavigationModel: NSObject, ObservableObject, @preconcurrency CLLocat
         onEvent?("Destination selected; busy: \(busy); navigating: \(navigating)")
         guard !navigating, !busy else { onEvent?("Destination selection blocked by current state"); return }
         plannedStart = nil
+        if phoneTripPreferred { sendToComma = false }
+        else if let preferred = UserDefaults.standard.object(forKey: "navigation.defaultComma") as? Bool { sendToComma = preferred }
         destination = place; routes = []; selectedRoute = 0; notice = ""; error = ""
         camera = .region(MKCoordinateRegion(center: place.coordinate, latitudinalMeters: 2500, longitudinalMeters: 2500))
         if !sendToComma { await calculateRoutes(refresh: false) }
@@ -355,6 +580,24 @@ final class NavigationModel: NSObject, ObservableObject, @preconcurrency CLLocat
         if comma, plannedStart != nil { plannedStart = nil; routes = []; selectedRoute = 0 }
         if !comma && routes.isEmpty { await calculateRoutes(refresh: false) }
     }
+    var phoneTripPreferred: Bool { UserDefaults.standard.bool(forKey: "navigation.offerPhoneTrip") }
+
+    func refreshTripPreference() async {
+        guard !navigating, !commandRunning, destination != nil else { return }
+        if phoneTripPreferred || UserDefaults.standard.object(forKey: "navigation.defaultComma") as? Bool == false {
+            await preview(from: nil)
+        } else {
+            revision = UUID()
+            directions?.cancel()
+            recalculating = false
+            busy = false
+            sendToComma = true
+            plannedStart = nil
+            routes = []
+            selectedRoute = 0
+            error = ""
+        }
+    }
     func preview(from place: NavigationPlace?) async {
         guard !navigating, !commandRunning, destination != nil else { return }
         revision = UUID()
@@ -368,11 +611,30 @@ final class NavigationModel: NSObject, ObservableObject, @preconcurrency CLLocat
         await calculateRoutes(refresh: false)
     }
     func calculateRoutes(refresh: Bool) async {
-        #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("--ui-testing") { return }
+        #if DEBUG || targetEnvironment(simulator)
+        if ProcessInfo.processInfo.arguments.contains("--ui-testing") {
+            #if targetEnvironment(simulator)
+            if ProcessInfo.processInfo.arguments.contains("--preview-navigation-planner"), let destination {
+                let end = destination.coordinate
+                let origin = CLLocationCoordinate2D(latitude: end.latitude - 0.014, longitude: end.longitude - 0.008)
+                routes = [("Front Street", 600.0, 2300.0), ("King Street", 720.0, 2750.0)].enumerated().map { index, sample in
+                    let corner = index == 0 ? CLLocationCoordinate2D(latitude: origin.latitude, longitude: end.longitude)
+                                            : CLLocationCoordinate2D(latitude: end.latitude, longitude: origin.longitude)
+                    let line = MKPolyline(coordinates: [origin, corner, end], count: 3)
+                    return PhoneRoute(name: sample.0, distance: sample.2, expectedTravelTime: sample.1, polyline: line, steps: [])
+                }
+                chooseRoute(0)
+                locationMessage = ""
+            }
+            #endif
+            return
+        }
         #endif
         onEvent?("Route calculation requested; refresh: \(refresh); destination: \(destination != nil); active: \(foreground); calculating: \(recalculating)")
         guard let destination, foreground, !sendToComma, !commandRunning, !recalculating else { onEvent?("Route calculation skipped by current state"); return }
+        let savedRouter = UserDefaults.standard.string(forKey: "navigation.phoneRouter") ?? "Automatic"
+        let preferredRouter = phoneTripPreferred && savedRouter != "Mapbox Traffic" ? "Mapbox Driving" : savedRouter
+        if !refresh, ExternalNavigator(rawValue: preferredRouter) != nil || (plannedStart == nil && preferredRouter == "Mapbox Navigator") { return }
         let token = UUID(); revision = token
         directions?.cancel()
         recalculating = true
@@ -410,13 +672,20 @@ final class NavigationModel: NSObject, ObservableObject, @preconcurrency CLLocat
         request.source = MKMapItem(placemark: MKPlacemark(coordinate: origin.coordinate))
         request.destination = destination.item
         request.transportType = .automobile
-        request.requestsAlternateRoutes = !refresh
+        request.requestsAlternateRoutes = !refresh && UserDefaults.standard.object(forKey: "navigation.offerAlternatives") as? Bool != false
         lastCalculation = Date()
         do {
             let choices: [PhoneRoute]
-            if let accessToken = NavigationMapPreference.activeToken {
+            let router = preferredRouter
+            let savedToken = UserDefaults.standard.string(forKey: NavigationMapPreference.tokenKey)
+            if router.hasPrefix("Mapbox") && savedToken?.hasPrefix("pk.") != true {
+                error = "Save a Mapbox public token in Navigation settings to use Mapbox directions."
+                return
+            }
+            if let accessToken = router == "Automatic" ? NavigationMapPreference.activeToken : (router.hasPrefix("Mapbox") ? savedToken : nil) {
                 choices = try await PhoneRoute.mapbox(from: origin.coordinate, to: destination.coordinate,
-                                                      alternatives: !refresh, token: accessToken)
+                                                      alternatives: request.requestsAlternateRoutes, token: accessToken,
+                                                      bearing: plannedStart == nil ? departureBearing(at: origin) : nil)
             } else {
                 let service = MKDirections(request: request)
                 directions = service
@@ -436,14 +705,14 @@ final class NavigationModel: NSObject, ObservableObject, @preconcurrency CLLocat
         }
     }
 
-    func start(connection: CommaConnection) async {
+    func start(connection: CommaConnection, phoneRouteOnComma: Bool = false) async {
         onEvent?("Go tapped; comma: \(sendToComma); connected: \(connection.connected); busy: \(busy); navigating: \(navigating); destination: \(destination != nil); route: \(route != nil)")
         guard !busy, !navigating, let destination else { onEvent?("Go blocked by current UI state"); return }
         if plannedStart != nil {
             await preview(from: nil)
             return
         }
-        let useComma = sendToComma
+        let useComma = sendToComma || phoneRouteOnComma
         guard useComma || route != nil else { error = "Get directions on iPhone before starting this route."; return }
         guard useComma || goodLocation != nil else {
             requestLocation()
@@ -456,6 +725,7 @@ final class NavigationModel: NSObject, ObservableObject, @preconcurrency CLLocat
         busy = true; commandRunning = true; connection.busy = true
         defer { if generation == commandGeneration { busy = false; commandRunning = false; connection.busy = false } }
         error = ""; notice = ""; commaDestination = nil; commaIdentity = nil
+        sentPhoneTripRevision = nil; confirmedPhoneTripRevision = nil
         if useComma {
             let identity: String
             do { identity = try await connection.ensureDeviceIdentity(); guard generation == commandGeneration else { return } }
@@ -476,18 +746,29 @@ final class NavigationModel: NSObject, ObservableObject, @preconcurrency CLLocat
                 let destinationPayload = try NavigationDestination(name: destination.name,
                     latitude: destination.coordinate.latitude, longitude: destination.coordinate.longitude)
                 onEvent?("Destination send requested (details omitted)")
-                _ = try await connection.navigation(.start(destinationPayload)) { sending = true }
+                if phoneRouteOnComma {
+                    guard let data = route?.commaPreview else { throw BridgeError.message("Choose a short Mapbox driving route first.") }
+                    let acceptedRevision = try await connection.startPhoneTrip(destination: destinationPayload, route: data) { sending = true }
+                    guard generation == commandGeneration else { return }
+                    sentPhoneTripRevision = acceptedRevision
+                } else {
+                    _ = try await connection.navigation(.start(destinationPayload)) { sending = true }
+                }
                 guard generation == commandGeneration else { return }
                 onEvent?("Destination confirmed by comma")
                 commaDestination = destination.coordinate; commaIdentity = identity
-                notice = ""
+                notice = phoneRouteOnComma ? "Your comma accepted the route calculated on iPhone." : ""
             } catch {
                 guard generation == commandGeneration else { return }
                 onEvent?("Go failed; send phase: \(sending); \(LANTransport.failureCode(error))")
-                self.error = sending ? "Comma did not confirm the destination. Check its screen before retrying. \(error.localizedDescription)" : "No destination sent. \(error.localizedDescription)"
+                if let rejection = error as? PhoneTripRejection { self.error = rejection.message }
+                else { self.error = sending ? "Comma did not confirm the destination. Check its screen before retrying. \(error.localizedDescription)" : "No destination sent. \(error.localizedDescription)" }
                 return
             }
         }
+        offRouteSamples = 0
+        nextRerouteAttempt = .distantPast
+        reroutingPhoneTrip = false
         usingComma = useComma
         positionDisplayGeneration += 1; commaPolyline = nil; cachedCommaPolyline = nil; commaPosition = nil; commaRouteVersion = nil; commaFeedReady = false
         commaFeedMessage = usingComma ? "Waiting for comma’s route…" : ""
@@ -531,6 +812,7 @@ final class NavigationModel: NSObject, ObservableObject, @preconcurrency CLLocat
         }
         directions?.cancel(); revision = UUID(); recalculating = false
         usingComma = false; positionDisplayGeneration += 1; commaPolyline = nil; cachedCommaPolyline = nil; commaPosition = nil; commaRouteVersion = nil; commaFeedReady = false
+        reroutingPhoneTrip = false
         navigating = false; routes = []; plannedStart = nil; destination = nil; commaDestination = nil; commaIdentity = nil
         onEvent?("Navigation ended; phone only: \(phoneOnly)")
         error = ""; instruction = ""; notice = phoneOnly ? "Phone route ended. Comma was left unchanged." : "Route ended."
@@ -571,6 +853,22 @@ final class NavigationModel: NSObject, ObservableObject, @preconcurrency CLLocat
                     try await Task.sleep(for: .seconds(2))
                     continue
                 }
+                confirmedPhoneTripRevision = snapshot.phoneTripRevision
+                if !showingSentRoute { updateJunction(nil) }
+                if confirmedPhoneTripRevision != sentPhoneTripRevision { reroutingPhoneTrip = false }
+                if let expectedRevision = sentPhoneTripRevision,
+                   snapshot.needsPhoneReroute(for: expectedRevision, offRouteSamples: offRouteSamples) {
+                    if !reroutingPhoneTrip {
+                        clearCommaDisplay("Recalculating from your current location…")
+                        reroutingPhoneTrip = true
+                        instruction = "Recalculating route"
+                    }
+                    if Date() >= nextRerouteAttempt {
+                        await replacePhoneRoute(connection: connection, destination: current, expectedRevision: expectedRevision)
+                    }
+                    try await Task.sleep(for: .seconds(1))
+                    continue
+                }
                 guard snapshot.status == "active", let instructions = snapshot.instruction else {
                     if snapshot.error?.isEmpty == false { clearCommaDisplay(snapshot.error!) }
                     else if snapshot.status == "waiting" {
@@ -584,17 +882,14 @@ final class NavigationModel: NSObject, ObservableObject, @preconcurrency CLLocat
                     try await Task.sleep(for: .seconds(2))
                     continue
                 }
-                if let points = snapshot.routePoints {
-                    guard points.count >= 2 else { throw NavigationContractError.invalidResponse }
-                    let coordinates = points.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
-                    cachedCommaPolyline = MKPolyline(coordinates: coordinates, count: coordinates.count)
-                    commaRouteVersion = snapshot.routeVersion
-                } else if let encoded = snapshot.polyline6 {
-                    let points = try RoutePolyline.decode(encoded)
-                    guard points.count >= 2 else { throw NavigationContractError.invalidResponse }
-                    let coordinates = points.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
-                    cachedCommaPolyline = MKPolyline(coordinates: coordinates, count: coordinates.count)
-                    commaRouteVersion = snapshot.routeVersion
+                if cachedCommaPolyline == nil || commaRouteVersion != snapshot.routeVersion {
+                    let points = try snapshot.routePoints ?? snapshot.polyline6.map { try RoutePolyline.decode($0) }
+                    if let points {
+                        guard points.count >= 2 else { throw NavigationContractError.invalidResponse }
+                        let coordinates = points.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
+                        cachedCommaPolyline = MKPolyline(coordinates: coordinates, count: coordinates.count)
+                        commaRouteVersion = snapshot.routeVersion
+                    }
                 }
                 guard cachedCommaPolyline != nil, commaRouteVersion == snapshot.routeVersion else {
                     clearCommaDisplay("Waiting for comma’s updated route…", discardRoute: true)
@@ -617,6 +912,7 @@ final class NavigationModel: NSObject, ObservableObject, @preconcurrency CLLocat
                     continue
                 }
                 onEvent?("Guidance accepted; remaining freshness: \(String(format: "%.3f", guidanceMaxAge - age - Date().timeIntervalSince(sampledAfter)))s")
+                reroutingPhoneTrip = false
                 commaPolyline = cachedCommaPolyline
                 lastCommaSample = sampledAfter.addingTimeInterval(-age)
                 instruction = [instructions.primary, instructions.secondary].filter { !$0.isEmpty }.joined(separator: "\n")
@@ -627,7 +923,7 @@ final class NavigationModel: NSObject, ObservableObject, @preconcurrency CLLocat
                 if let position = snapshot.position, snapshot.positionValidForSeconds == nil || snapshot.positionValidForSeconds! > Date().timeIntervalSince(sampledAfter) {
                     commaPositionExpires = snapshot.positionValidForSeconds.map { sampledAfter.addingTimeInterval($0) }
                     commaPositionSampleDate = sampledAfter
-                    if let bearing = position.bearing { commaBearing = bearing }
+                    commaBearing = position.bearing
                     commaPosition = CLLocationCoordinate2D(latitude: position.latitude, longitude: position.longitude)
                 } else { commaPosition = nil }
             } catch {
@@ -642,8 +938,61 @@ final class NavigationModel: NSObject, ObservableObject, @preconcurrency CLLocat
             do { try await Task.sleep(for: .seconds(delay)) } catch { return }
         }
     }
+    private func replacePhoneRoute(connection: CommaConnection, destination: NavigationDestination,
+                                   expectedRevision: String) async {
+        guard let origin = goodLocation, abs(origin.timestamp.timeIntervalSinceNow) <= 5,
+              origin.horizontalAccuracy <= 30 else {
+            commaFeedMessage = "Waiting for an accurate location to reroute."
+            return
+        }
+        let generation = revision
+        let session = connection.session
+        func stillCurrent() -> Bool {
+            !Task.isCancelled && navigating && usingComma && !commandRunning && revision == generation &&
+                connection.connected && connection.session == session && connection.deviceIdentity != nil && connection.deviceIdentity == commaIdentity &&
+                sentPhoneTripRevision == expectedRevision
+        }
+        nextRerouteAttempt = Date().addingTimeInterval(15)
+        do {
+            guard let token = UserDefaults.standard.string(forKey: NavigationMapPreference.tokenKey), token.hasPrefix("pk.") else {
+                throw BridgeError.message("Save a Mapbox public token in Navigation settings to reroute.")
+            }
+            commaFeedMessage = "Finding a new route on iPhone…"
+            onEvent?("Rerouting handed-off trip from current location")
+            let target = CLLocationCoordinate2D(latitude: destination.latitude, longitude: destination.longitude)
+            let choices = try await PhoneRoute.mapbox(from: origin.coordinate, to: target, alternatives: false,
+                                                      token: token, bearing: departureBearing(at: origin))
+            guard stillCurrent() else { return }
+            guard let replacement = choices.first, let body = replacement.commaPreview else {
+                throw BridgeError.message("The replacement route could not be transferred to comma.")
+            }
+            let accepted = try await connection.sendPhoneTrip(destination: destination, route: body,
+                                                              revision: expectedRevision, supportsOnroad: true)
+            guard stillCurrent() else { return }
+            sentPhoneTripRevision = accepted
+            confirmedPhoneTripRevision = nil
+            routes = [replacement]
+            selectedRoute = 0
+            offRouteSamples = 0
+            commaRouteVersion = nil
+            cachedCommaPolyline = nil
+            commaFeedMessage = "New route received. Waiting for guidance…"
+            onEvent?("Replacement iPhone route confirmed by comma")
+        } catch {
+            guard stillCurrent() else { return }
+            nextRerouteAttempt = Date().addingTimeInterval(15)
+            commaFeedMessage = "Rerouting delayed. " + error.localizedDescription
+            onEvent?("Replacement route delayed: \(LANTransport.failureCode(error))")
+        }
+    }
+
     private var commaPositionExpires: Date?
     func checkCommaFreshness() {
+        if mappedJunction != nil,
+           !navigating || (usingComma && !showingSentRoute) || !UserDefaults.standard.bool(forKey: "navigation.mappedJunctions") ||
+           abs(location?.timestamp.timeIntervalSinceNow ?? .infinity) > 3 {
+            updateJunction(nil)
+        }
         if let expires = commaPositionExpires, Date() >= expires { commaPosition = nil }
         if usingComma, commaFeedReady, Date().timeIntervalSince(lastCommaSample) >= guidanceMaxAge {
             clearCommaDisplay("Comma navigation is stale. Reconnecting…")
@@ -673,7 +1022,7 @@ final class NavigationModel: NSObject, ObservableObject, @preconcurrency CLLocat
             if let coordinate = commaPosition {
                 withAnimation(.easeInOut(duration: UIAccessibility.isReduceMotionEnabled ? 0 : 0.4)) {
                     camera = .camera(MapCamera(centerCoordinate: coordinate, distance: followCameraDistance,
-                        heading: commaBearing, pitch: followPitch(cruising: 62, speed: 0)))
+                        heading: commaHeading >= 0 ? commaHeading : camera.camera?.heading ?? 0, pitch: followPitch(cruising: 62, speed: 0)))
                 }
             }
             return
@@ -697,6 +1046,7 @@ final class NavigationModel: NSObject, ObservableObject, @preconcurrency CLLocat
         directions?.cancel(); directions = nil
         cancelPlaceSearch()
         commandRunning = false; endingRoute = false; busy = false; searching = false; recalculating = false
+        reroutingPhoneTrip = false
         navigating = false; usingComma = false
         results = []; routes = []; plannedStart = nil; destination = nil; selectedRoute = 0
         commaDestination = nil; commaIdentity = nil; cachedCommaPolyline = nil
@@ -768,18 +1118,5 @@ final class NavigationModel: NSObject, ObservableObject, @preconcurrency CLLocat
             instruction = "You’re near your destination"
             phoneTurn = false
         }
-    }
-    private func distanceFromRoute(_ coordinate: CLLocationCoordinate2D, polyline: MKPolyline) -> Double {
-        let p = MKMapPoint(coordinate); let points = polyline.points()
-        guard polyline.pointCount > 1 else { return .infinity }
-        var nearest = Double.infinity
-        for i in 1..<polyline.pointCount {
-            let a = points[i - 1], b = points[i]
-            let dx = b.x - a.x, dy = b.y - a.y
-            let denominator = dx * dx + dy * dy
-            let fraction = denominator > 0 ? min(1, max(0, ((p.x - a.x) * dx + (p.y - a.y) * dy) / denominator)) : 0
-            nearest = min(nearest, p.distance(to: MKMapPoint(x: a.x + fraction * dx, y: a.y + fraction * dy)))
-        }
-        return nearest
     }
 }
