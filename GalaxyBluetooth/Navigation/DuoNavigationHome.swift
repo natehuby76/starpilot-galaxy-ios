@@ -59,13 +59,13 @@ struct DuoNavigationHome: View {
             }
         }
         .onDisappear { if searchingPlaces { finishSearch() } }
-        .pageSheet(item: $auxiliarySearch) { purpose in
+        .sheet(item: $auxiliarySearch) { purpose in
             PlaceSearch(navigation: navigation, saved: saved, saveAs: purpose.savedKind, choosingStart: purpose == .start) { place in
                 if purpose == .start { Task { await navigation.preview(from: place) } }
                 else if let kind = purpose.savedKind { saved.save(place, as: kind) }
             }
         }
-        .pageSheet(isPresented: $library) {
+        .sheet(isPresented: $library) {
             SavedPlacesView(saved: saved) { place in
                 library = false
                 select(saved.navigationPlace(place))
