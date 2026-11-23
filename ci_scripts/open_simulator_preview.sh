@@ -1,6 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
+if ! xcrun --find simctl >/dev/null 2>&1; then
+  export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+fi
+simctl=$(xcrun --find simctl)
+developer_dir=${simctl%/usr/bin/simctl}
 devices=$(xcrun simctl list devices available -j)
 device=$(python3 -c '
 import json,sys
@@ -9,8 +14,13 @@ phones=[d for k in reversed(list(devices)) if ".iOS-" in k for d in devices[k] i
 if not phones: sys.exit("Install an iPhone Simulator runtime in Xcode, then run this again.")
 print(next((d for d in phones if d["state"]=="Booted"),phones[0])["udid"])
 ' <<< "$devices")
-open -a Simulator
 xcrun simctl bootstatus "$device" -b
+for viewer in "$developer_dir/Applications/Device Hub.app" "$developer_dir/Applications/Simulator.app"; do
+  if [[ -d "$viewer" ]] && open "$viewer"; then
+    break
+  fi
+done
+echo "Building Galaxy Preview for the simulated iPhone..."
 build_dir="$HOME/Library/Developer/Xcode/DerivedData/GalaxySimulatorPreview"
 xcodebuild -quiet -project GalaxyBluetooth.xcodeproj -scheme GalaxyBluetooth -configuration Debug -destination "platform=iOS Simulator,id=$device" -derivedDataPath "$build_dir" build
 for app in "$build_dir"/Build/Products/Debug-iphonesimulator/*.app; do
