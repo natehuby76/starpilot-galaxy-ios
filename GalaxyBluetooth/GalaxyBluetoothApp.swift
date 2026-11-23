@@ -1165,7 +1165,14 @@ struct GalaxyRootView: View {
                         server.useWebRoot(directory)
                     } catch { return }
                 }
-                model.opened = true; model.tab = .galaxy
+                if simulatorDemo {
+                    model.navigationServices.setEnabled(model.navigationEnabled)
+                    model.navigationServices.setPhoneActive(scenePhase == .active)
+                }
+                if !model.opened {
+                    model.opened = true
+                    model.tab = .galaxy
+                }
                 return
             }
 #endif

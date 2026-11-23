@@ -27,7 +27,9 @@ for app in "$build_dir"/Build/Products/Debug-iphonesimulator/*.app; do
   bundle=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Info.plist")
   if [[ $bundle == link.galaxy.bluetooth.natehuby76.preview ]]; then
     xcrun simctl install "$device" "$app"
-    xcrun simctl launch --terminate-running-process "$device" "$bundle" --preview-galaxy --simulator-toggles
+    xcrun simctl privacy "$device" grant location "$bundle"
+    xcrun simctl location "$device" set "${GALAXY_PREVIEW_LOCATION:-43.6426,-79.3871}"
+    xcrun simctl launch --terminate-running-process "$device" "$bundle" --preview-galaxy --simulator-toggles -galaxy.app.navigationEnabled YES -navigation.defaultComma NO -navigation.offerPhoneTrip NO
     exit 0
   fi
 done
