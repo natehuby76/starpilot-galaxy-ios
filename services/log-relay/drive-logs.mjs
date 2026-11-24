@@ -184,7 +184,7 @@ export async function driveObject(request,storage,env) {
     try {
       result=await postWebhook(env.DISCORD_WEBHOOK_URL,threadID,{
         content:['connection','controller'].includes(record.kind)
-          ? 'Please send fresh '+record.kind+' logs for this report. Open this link on your phone and sign in with Discord to get your code. Enter it in Galaxy under Networks or Bluetooth → Send to existing Discord thread: <'+record.origin+'/report/galaxy/fresh/'+record.token+'>'
+          ? 'Please send fresh '+record.kind+' logs for this report. Open this link on your phone and sign in with Discord to get your code. Enter it in Galaxy under '+(record.kind==='controller'?'Bluetooth':'Networks')+' → Connection logs → Send to existing Discord thread: <'+record.origin+'/report/galaxy/fresh/'+record.token+'>'
           : 'Submit your drive logs privately: <'+record.origin+'/drive/'+record.token+'>',
         allowed_mentions:{parse:[]}
       });
