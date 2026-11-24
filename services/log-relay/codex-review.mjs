@@ -41,7 +41,8 @@ async function webhookMessage(raw,channel,id){
   if(url.origin!=='https://discord.com'||!/^\/api\/webhooks\/\d+\/[\w-]+$/.test(url.pathname)||!/^\d+$/.test(channel)||!/^\d+$/.test(id))
     throw Error('Invalid report destination');
   url.pathname+='/messages/'+id;url.search='';url.searchParams.set('thread_id',channel);
-  const r=await fetch(url,{redirect:'error',signal:AbortSignal.timeout(10000)});
+  const r=await fetch(url,{redirect:'manual',signal:AbortSignal.timeout(10000)});
+  if(r.status>=300&&r.status<400)throw Error('Discord returned an unexpected redirect for the saved report.');
   if(!r.ok)throw Error('Discord could not retrieve a saved report ('+r.status+').');
   const m=await r.json();
   if(m.id!==id||m.channel_id!==channel)throw Error('Discord returned a different report.');

@@ -115,6 +115,10 @@ el('saveChat').onclick=()=>run(async()=>{
   localStorage.setItem('support-codex-chat',matches[0]);el('codexChat').value=matches[0];status('Codex destination saved on this browser.');
 });
 el('reviewCodex').onclick=()=>run(async()=>{
+  if(/Macintosh|iPhone|iPad|iPod/.test(navigator.userAgent)){
+    status('Open this report on the Windows PC where the Codex review helper is installed.');
+    return;
+  }
   const r=selected;if(!r)throw Error('Select a report first.');
   const data=await api('dashboard/codex-review',{userID:r.userID,reference:r.reference,chat:savedChat()});
   if(selected!==r)return;

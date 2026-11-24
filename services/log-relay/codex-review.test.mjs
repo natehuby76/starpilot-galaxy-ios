@@ -13,7 +13,10 @@ test('handoff uses the specified chat and can be claimed only once',async t=>{
       const storage={get:k=>rows.get(k),put:(k,v)=>rows.set(k,v),delete:k=>rows.delete(k),setAlarm:()=>{},transaction:cb=>cb(storage)};
       return reviewStorage(storage,new URL(url).pathname.split('/').pop(),JSON.parse(options.body));
     }})}};
-  t.mock.method(globalThis,'fetch',async url=>{
+  let redirect=false;
+  const request=t.mock.method(globalThis,'fetch',async (url,options)=>{
+    assert.equal(options.redirect,'manual');
+    if(redirect)return Response.redirect('https://example.com/',302);
     const pub=String(url).includes('/public/');
     return Response.json(pub?{id:'3',channel_id:'2',content:'Lost nav\nPrivate diagnostics: https://discord.com/channels/1/4/5'}:
       {id:'5',channel_id:'4',content:'Private report',attachments:[{filename:'report.txt',url:'https://cdn.discordapp.com/attachments/4/report.txt',size:12}]});
@@ -26,4 +29,8 @@ test('handoff uses the specified chat and can be claimed only once',async t=>{
     assert.equal(result.entries[0].attachments[0].name,'report.txt');
     assert.equal((await claimReview(env,ticket)).status,410);
   }
+  redirect=true;
+  const calls=request.mock.callCount();
+  await assert.rejects(prepareReview(env,record,''),/unexpected redirect/);
+  assert.equal(request.mock.callCount(),calls+1);
 });
