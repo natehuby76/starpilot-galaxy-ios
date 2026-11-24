@@ -69,7 +69,8 @@ export async function prepareReview(env,report,chat){
 
 const queueSize=40;
 const jobLifetime=86400000;
-const leaseDuration=600000;
+// Allow the next 30-minute Codex check to pick up a staged report.
+const leaseDuration=60*60*1000;
 const publicJob=job=>({id:job.id,state:job.state});
 
 export function queueReview(env,report,chat){
