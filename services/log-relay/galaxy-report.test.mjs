@@ -60,6 +60,7 @@ test('Galaxy browser OAuth returns to a private report form and submits only the
     const html = await (await open(web+'/manual',{headers:{Cookie:session}})).text();
     assert.match(html, /&lt;Sample&gt;/);
     assert.match(html, /Diagnostic ZIP/);
+    assert.ok(html.indexOf('Capture logs in Galaxy') < html.indexOf('type="file"'));
     const form = new FormData();
     form.append('description','Local Wi-Fi dropped');
     form.append('reference',reference);

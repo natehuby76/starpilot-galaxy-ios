@@ -64,6 +64,8 @@ function page({user, error = '', reference = crypto.randomUUID(), description = 
       + '<p>Choose the ZIP from Galaxy’s Download ZIP button or StarPilot’s Export logs.</p><button>Send report</button></form>'
       + '<form method="post" action="'+PAGE+'/sign-out"><button class="secondary">Sign out</button></form>';
   }
+  const capture = thread ? '' : '<a class="button" href="'+PAGE+'/new/connection">Capture logs in Galaxy</a>'
+    + ' <a href="'+PAGE+'/new/controller">Capture controller logs</a><h2>Upload a ZIP manually</h2>';
   return new Response('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
     + '<title>Report a Galaxy issue</title><style>'
     + ':root{color-scheme:light dark;font:16px system-ui}body{margin:0;background:#141120;color:#f5efff}main{max-width:38rem;margin:auto;padding:2rem 1.2rem 3rem}'
@@ -71,7 +73,7 @@ function page({user, error = '', reference = crypto.randomUUID(), description = 
     + 'textarea,input{font:inherit;color:inherit}textarea{box-sizing:border-box;width:100%;padding:.75rem;border:1px solid #64557a;border-radius:.6rem;background:#201a2d}input{max-width:100%}'
     + 'button,.button{justify-self:start;display:inline-block;font:inherit;font-weight:650;padding:.7rem 1rem;border:none;border-radius:.6rem;background:#c7a5ff;color:#1b102a;text-decoration:none;cursor:pointer}'
     + '.secondary{background:#352847;color:#f5efff}.error{color:#ffb8c9}</style>'
-    + '<main><h1>Report a Galaxy issue</h1>'+message+content+'</main></html>', {status, headers});
+    + '<main><h1>Galaxy support</h1>'+message+capture+content+'</main></html>', {status, headers});
 }
 
 async function bounded(body, limit) {
