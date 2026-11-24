@@ -332,7 +332,8 @@ export class Reports {
       }
       const controllerLog = body.source === 'galaxy' && body.controllerLog === true;
       const fingerprint = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify([body.description, body.logs, body.threadID || null, ...(controllerLog ? ["controller"] : [])]))))].map(b => b.toString(16).padStart(2, '0')).join('');
-      if (previous?.fingerprint && previous.fingerprint !== fingerprint) return json({error: 'Retry the original report without changing its contents.'}, 409);
+      const recaptured = body.source === 'galaxy' && body.deviceCapture === true && Boolean(existingThread);
+      if (!recaptured && previous?.fingerprint && previous.fingerprint !== fingerprint) return json({error: 'Retry the original report without changing its contents.'}, 409);
       const now = Date.now();
       let webhook, privateWebhook;
       try {
@@ -367,7 +368,8 @@ export class Reports {
       const reservation = await this.ctx.storage.transaction(async storage => {
         const existing = await storage.get(key);
         if (existing && !existing.retryable) return existing;
-        if (existing?.fingerprint && existing.fingerprint !== fingerprint) return {status:409,result:{error:"Retry the original report without changing its contents."}};
+        if (existing?.privateURL !== previous?.privateURL) return {status:409,result:{error:"Delivery progressed. Retry to confirm the receipt."}};
+        if (!recaptured && existing?.fingerprint && existing.fingerprint !== fingerprint) return {status:409,result:{error:"Retry the original report without changing its contents."}};
         const times = (await storage.get('times') || []).filter(t => now - t < 3600000);
         if (!existing && times.length >= 5) return {status: 429, result: {error: 'Please wait before sending another report.'}};
         await storage.put(key, uncertain);
@@ -392,9 +394,11 @@ export class Reports {
       if (existingThread) { delete payload.thread_name; delete payload.applied_tags; webhook.searchParams.set('thread_id', body.threadID); }
       uncertain.title = title;
       // Persist progress only, never diagnostic contents. Unknown outcomes stay blocked.
-      const rejected = async (response) => {
+      const rejected = async (response, stage) => {
         if (response.status >= 400 && response.status < 500 && response.status !== 408) {
-          const retry = {...uncertain, retryable:true, status:503, result:{error:'Discord declined this delivery. Retry the saved report; confirmed private diagnostics will not be uploaded again.', reference:body.reference}};
+          const detail=await response.json().catch(()=>({}));
+          const reason=Number.isSafeInteger(detail?.code)?' / '+detail.code:'';
+          const retry = {...uncertain, retryable:true, status:503, result:{error:'Discord declined the '+stage+' (HTTP '+response.status+reason+').', reference:body.reference}};
           await this.ctx.storage.put(key, retry);
           return json(retry.result, retry.status);
         }
@@ -410,18 +414,28 @@ export class Reports {
       try {
         if (!uncertain.privateURL) {
           privateWebhook.searchParams.set('wait', 'true');
-          const privateResult = this.env.DISCORD_BOT_TOKEN ? await botPost(this.env,privateHook.channel_id,form) : await fetch(privateWebhook, {method: 'POST', body: form, redirect: 'manual', signal: AbortSignal.timeout(15000)});
-          if (!privateResult.ok) return await rejected(privateResult);
+          let botPrivate = Boolean(this.env.DISCORD_BOT_TOKEN);
+          let privateResult;
+          if (botPrivate) {
+            privateResult = await botPost(this.env,privateHook.channel_id,form);
+            if (privateResult.status === 403) {
+              // Discord rejected the upload. The configured private forum webhook can post it once.
+              botPrivate = false;
+              form.set('payload_json', JSON.stringify(privatePayload));
+            }
+          }
+          if (!botPrivate) privateResult = await fetch(privateWebhook, {method:'POST',body:form,redirect:'manual',signal:AbortSignal.timeout(15000)});
+          if (!privateResult.ok) return await rejected(privateResult, "private upload");
           const privateMessage = await privateResult.json();
           if (!/^\d+$/.test(privateMessage.id || '') || !/^\d+$/.test(privateMessage.channel_id || '') ||
               (privateForum ? privateMessage.channel_id === privateHook.channel_id || privateMessage.channel_id === hook.channel_id : privateMessage.channel_id !== privateHook.channel_id)) return json(uncertain.result, 409);
-          uncertain.botPrivate = Boolean(this.env.DISCORD_BOT_TOKEN);
+          uncertain.botPrivate = botPrivate;
           uncertain.privateURL = `https://discord.com/channels/${privateHook.guild_id}/${privateMessage.channel_id}/${privateMessage.id}`;
           await this.ctx.storage.put(key, uncertain);
         }
         payload.content += `\n\nPrivate diagnostics: ${uncertain.privateURL}`;
         const result = this.env.DISCORD_BOT_TOKEN ? await botPost(this.env,body.threadID || hook.channel_id,payload) : await fetch(webhook, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload), redirect: 'manual', signal: AbortSignal.timeout(15000)});
-        if (!result.ok) return await rejected(result);
+        if (!result.ok) return await rejected(result, "thread receipt");
         const message = await result.json();
         if (!/^\d+$/.test(message.id || '') || !/^\d+$/.test(message.channel_id || '') || (existingThread && message.channel_id !== body.threadID)) return json(uncertain.result, 409);
         const response = {sent: true, reference: body.reference, threadURL: `https://discord.com/channels/${hook.guild_id}/${message.channel_id}/${message.id}`};

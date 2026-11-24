@@ -172,7 +172,7 @@ export async function galaxyReportPage(request, env, {base, callback, discord, s
       diagnostic=await diagnosticText(new Blob([Uint8Array.from(atob(data.archive),c=>c.charCodeAt(0))]));
       if(Boolean(diagnostic.controllerLog)!==(ticket.kind==='controller')) throw Error();
     } catch {return error('Unexpected diagnostic archive',400);}
-    const sent=await submit({user:reporter,platform:ticket.platform,threadID:ticket.threadID,reference:ticket.reference,
+    const sent=await submit({deviceCapture:true,user:reporter,platform:ticket.platform,threadID:ticket.threadID,reference:ticket.reference,
       description:'Fresh '+ticket.kind+' logs requested by support.',...diagnostic});
     const receipt=await sent.json();
     if (!sent.ok || !receipt.sent || !new RegExp('^https://discord[.]com/channels/[0-9]+/'+ticket.threadID+'/[0-9]+$').test(receipt.threadURL))

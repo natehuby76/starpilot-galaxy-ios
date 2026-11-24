@@ -473,3 +473,38 @@ for(const platform of ['ios','android']) test(platform+' bot report pings its ma
   assert.equal(record.botPublic,true);
   assert.equal(record.botPrivateURL,'https://discord.com/channels/333/888/888');
 });
+
+test('recaptured Galaxy logs resume after private rejection and use the verified private webhook',async t=>{
+  const store=storage();
+  const channel='222';
+  await store.put('thread:'+channel,{platform:'ios',title:'Lost nav'});
+  const service=new Reports({storage:store},{...env,DISCORD_BOT_TOKEN:'bot-test',DISCORD_PRIVATE_FORUM:'true'});
+  const sends=[];
+  let first=true;
+  t.mock.method(globalThis,'fetch',async(url,options)=>{
+    const path=new URL(url).pathname;
+    if(path.endsWith('/channels/222') && options.method!=='POST')
+      return Response.json({id:channel,type:11,parent_id:'1565235002734809168',applied_tags:[]});
+    if(options.method!=='POST') return Response.json({guild_id:'333',channel_id:path.includes('/456/')?'666':'777'});
+    if(path.endsWith('/channels/666/threads')){
+      sends.push('private bot');
+      return new Response('',{status:first?429:403});
+    }
+    if(path.includes('/webhooks/456/')){
+      sends.push('private webhook');
+      assert.equal(JSON.parse(options.body.get('payload_json')).thread_name,'Lost nav');
+      assert.ok(options.body.get('files[0]').size>0);
+      return Response.json({id:'888',channel_id:'888'});
+    }
+    assert.ok(path.endsWith('/channels/222/messages'));
+    sends.push('public receipt');
+    assert.ok(JSON.parse(options.body).content.includes('/333/888/888'));
+    return Response.json({id:'111',channel_id:channel});
+  });
+  const send=logs=>service.fetch(request('/submit',{...body,source:'galaxy',deviceCapture:true,threadID:channel,platform:'ios',logs}));
+  assert.equal((await send('capture 1')).status,503);
+  first=false;
+  assert.equal((await send('capture 2')).status,200);
+  assert.equal((await send('capture 3')).status,200);
+  assert.deepEqual(sends,['private bot','private bot','private webhook','public receipt']);
+});
