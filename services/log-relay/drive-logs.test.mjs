@@ -129,9 +129,11 @@ for (const [kind,page] of [['controller','Bluetooth'],['connection','Networks']]
     const token=new URL(url).pathname.split('/').pop();
     assert.deepEqual(await (await sendDriveInvite(f.env,'777',token)).json(),{sent:true});
     const {invite}=f.posts[0];
-    assert.equal(invite.content,'<@555>');
+    assert.ok(invite.content.startsWith('<@555>\n'));
+    assert.match(invite.content,/Capture and send/);
+    assert.match(invite.content,/Manual ZIP download/);
     assert.deepEqual(invite.allowed_mentions.users,['555']);
-    assert.ok(invite.embeds[0].description.includes('Galaxy → Galaxy Access & Connections → '+page+' → Connection logs'));
+    assert.ok(invite.content.includes('Galaxy → Galaxy Access & Connections → '+page+' → Connection logs'));
     assert.equal(invite.components[0].components[0].url,url);
     assert.match(url,/[/]report[/]galaxy[/]fresh[/]/);
     assert.deepEqual(invite.allowed_mentions.parse,[]);

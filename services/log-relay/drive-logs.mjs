@@ -187,9 +187,15 @@ export async function driveObject(request,storage,env) {
       const capture = ['connection','controller'].includes(record.kind);
       const page = record.kind === 'controller' ? 'Bluetooth' : 'Networks';
       const link = record.origin+(capture ? '/report/galaxy/fresh/' : '/drive/')+record.token;
-      const content = capture
-        ? 'Support requested '+(record.kind === 'controller' ? 'physical controller diagnostics' : 'phone app connection diagnostics')+'. Tap Get my Galaxy code and sign in on your phone. If the app cannot connect, use Galaxy on the comma or open its Local Galaxy address in a browser on the same Wi-Fi. The comma needs internet to find the report and send logs. In Galaxy → Galaxy Access & Connections → '+page+' → Connection logs → Send to existing Discord thread. If the comma is offline, use your phone’s browser on the local Galaxy network. Open '+(record.kind==='controller'?'Bluetooth → Get help → Bluetooth Controller Support':'Networks → Connection logs')+' → Manual ZIP download, then Capture logs → Download ZIP. Once your phone is online, reopen this request and choose the offline ZIP option to send it privately.'
-        : 'Submit your drive logs privately:';
+      const content = capture ? [
+        record.kind==='controller' ? '**Bluetooth controller logs requested**' : '**Network logs requested**',
+        '1. Tap **Get my Galaxy code**, sign in with Discord, and copy the code.',
+        '2. Open Galaxy → Galaxy Access & Connections → '+page+' → Connection logs. Choose **Send to existing Discord thread**.',
+        '3. Enter the code, tap **Find report**, then **Capture and send**.',
+        '',
+        '**App won’t connect?** Use Galaxy on the comma, or open its Local Galaxy address in your phone’s browser on the same Wi-Fi.',
+        '**Comma offline?** On your phone, open that local address and go to '+(record.kind==='controller'?'Bluetooth → Get help → Bluetooth Controller Support':'Networks → Connection logs')+' → **Manual ZIP download**. Capture and download the ZIP. Once your phone is online, reopen **Get my Galaxy code** and use the offline ZIP option to send it privately.'
+      ].join('\n') : '**Drive logs requested**\nUse the link below to submit the drive logs privately for this report.';
       const reporter=/^\d{1,20}$/.test(record.userID) ? record.userID : null;
       const mention=reporter ? '<@'+reporter+'>' : '';
       const mentions={parse:[],users:reporter?[reporter]:[]};
@@ -197,7 +203,7 @@ export async function driveObject(request,storage,env) {
         result = await fetch('https://discord.com/api/v10/channels/'+threadID+'/messages',{
           method:'POST',redirect:'manual',signal:AbortSignal.timeout(15000),
           headers:{Authorization:'Bot '+env.DISCORD_BOT_TOKEN,'Content-Type':'application/json'},
-          body:JSON.stringify({content:mention,embeds:[{title:capture?(record.kind==='controller'?'Bluetooth logs requested':'Network logs requested'):'Drive logs requested',description:content,color:0xf2b134}],allowed_mentions:mentions,components:[{type:1,components:[
+          body:JSON.stringify({content:[mention,content].filter(Boolean).join('\n'),allowed_mentions:mentions,components:[{type:1,components:[
             {type:2,style:5,label:capture ? 'Get my Galaxy code' : 'Submit drive logs',url:link}
           ]},...(reporter&&['ios','android'].includes(record.platform)?[reporterButtons(reporter,record.platform,threadID)]:[])]})
         });

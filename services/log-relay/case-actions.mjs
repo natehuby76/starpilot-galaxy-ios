@@ -140,8 +140,7 @@ export async function caseAction(storage,env,b){
   const payload={content:message,nonce:b.interaction,enforce_nonce:true,
     allowed_mentions:{parse:[],users:action==='testing'?[user]:action==='assign'?[value]:[]}};
   if(action==='testing'){
-    payload.embeds=[{title:'🧪 Waiting for user testing',description:value,color:0xf2b134,
-      footer:{text:'Share your results below or mark the request fulfilled.'}}];
+    payload.content=[message,'**Waiting for user testing**',value,'','Choose **Give feedback** to share your results, or **My request is fulfilled** to close the report.'].join('\n');
     payload.components=[reporterButtons(user,platform,channel)];
   }
   const post=await botPost(env,channel,payload);
