@@ -12,9 +12,13 @@ export async function freshCapturePage({request, user, ticket, token, base, diag
   if (request.method === 'GET') {
     if (!user) return screen(signIn);
     if (user.id !== ticket.userID) return screen('Open this request with the Discord account that filed the report.',403);
-    return screen('<p>'+escape(ticket.title || 'New Galaxy support report')+'</p><form id="launch"><label>Local Galaxy address from your comma<input id="address" required placeholder="192.168.1.17:8082"></label><button>Open Galaxy</button></form><p id="status" role="status"></p><script nonce="'+nonce+'">'+
+    return screen('<p>'+escape(ticket.title || 'New Galaxy support report')+'</p><form id="launch"><label>Local Galaxy address from your comma<input id="address" required placeholder="192.168.1.17:8082"></label><button>Open Galaxy</button></form><p><button id="on-comma" type="button">I’m on the comma screen</button></p><p id="status" role="status"></p><script nonce="'+nonce+'">'+
       `const field=document.getElementById('address');
       try {field.value=localStorage.getItem('galaxy-local-address')||'';} catch {}
+      const openGalaxy=url=>{
+        url.pathname='/';url.search='';url.hash='/logs/help/fresh/${ticket.kind}/${token}';location.assign(url.href);
+      };
+      document.getElementById('on-comma').onclick=()=>openGalaxy(new URL('http://127.0.0.1:8082'));
       document.getElementById('launch').onsubmit=e=>{
         e.preventDefault();
         try {
@@ -23,7 +27,7 @@ export async function freshCapturePage({request, user, ticket, token, base, diag
           if(!['http:','https:'].includes(url.protocol)||url.username||url.password||ip.length!==4||!ip.every(Number.isInteger)||!(ip[0]===10||ip[0]===192&&ip[1]===168||ip[0]===172&&ip[1]>=16&&ip[1]<=31))throw Error();
           if(!url.port && !raw.includes('://'))url.port='8082';
           try {localStorage.setItem('galaxy-local-address',url.origin);} catch {}
-          url.pathname='/';url.search='';url.hash='/logs/help/fresh/${ticket.kind}/${token}';location.assign(url.href);
+          openGalaxy(url);
         } catch {document.getElementById('status').textContent='Enter the local IPv4 address shown on your comma.';}
       };</script>`);
   }

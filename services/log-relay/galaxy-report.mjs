@@ -1,6 +1,7 @@
 import {freshRequest,startGalaxyCapture} from './drive-logs.mjs';
 import {freshCapturePage} from './fresh-capture.mjs';
 const PAGE = '/report/galaxy';
+const MANUAL = PAGE + '/manual';
 const OAUTH_COOKIE = '__Host-galaxy-discord-oauth';
 const SESSION_COOKIE = '__Host-galaxy-discord-report';
 const STATE_PREFIX = 'galaxy_web_';
@@ -53,7 +54,7 @@ function page({user, error = '', reference = crypto.randomUUID(), description = 
   if (thread) {
     content = '<h2>Report sent</h2><p>Reference <code>'+escape(reference)+'</code></p><a class="button" href="'+escape(thread)+'">Open support thread</a>';
   } else if (!user) {
-    content = '<p>Sign in with Discord to send a report and follow support replies.</p><a class="button" href="'+PAGE+'/sign-in">Sign in with Discord</a>';
+    content = '<p>Sign in with Discord to send a report and follow support replies.</p><a class="button" href="'+PAGE+'/sign-in?return='+encodeURIComponent(MANUAL)+'">Sign in with Discord</a>';
   } else {
     content = '<p>Signed in as <strong>'+escape(user.global_name || user.username)+'</strong></p>'
       + '<p>Your description goes to the StarPilot support forum. Your diagnostic ZIP goes to the private support forum.</p>'
@@ -126,7 +127,7 @@ export async function galaxyReportPage(request, env, {base, callback, discord, s
     target.search = new URLSearchParams({client_id:env.DISCORD_CLIENT_ID, redirect_uri:callback, response_type:'code', scope:'identify',
       state, code_challenge:challenge, code_challenge_method:'S256'}).toString();
     const returnPath = url.searchParams.get('return') || PAGE;
-    const next = /^\/report\/galaxy\/(?:fresh\/[a-f0-9]{64}|new\/(?:connection|controller))$/.test(returnPath) ? returnPath : PAGE;
+    const next = returnPath === MANUAL || /^\/report\/galaxy\/(?:fresh\/[a-f0-9]{64}|new\/(?:connection|controller))$/.test(returnPath) ? returnPath : PAGE;
     const transaction = await seal(secret,OAUTH_COOKIE,{state,verifier,next,expires:Date.now()+600000});
     return redirect(target.href,[cookie(OAUTH_COOKIE,transaction,600)]);
   }
@@ -171,10 +172,18 @@ export async function galaxyReportPage(request, env, {base, callback, discord, s
     if (!ticket) return page({error:'This request has expired. Ask support for a new link.',status:410});
     return freshCapturePage({request,user,ticket,token:fresh[1],base,diagnosticText,bounded,submit,escape});
   }
-  if (request.method === 'GET' && url.pathname === PAGE) return page({user});
+  if (request.method === 'GET' && url.pathname === PAGE) {
+    return new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Galaxy support</title>
+      <style>body{font:1rem/1.55 system-ui;max-width:32rem;margin:8vh auto;padding:1rem;color-scheme:light dark}a{display:block;margin:.8rem 0}</style>
+      <main><h1>Galaxy support</h1><p>Galaxy captures and attaches the diagnostics for you. Your logs go to the private support forum.</p>
+      <a href="${PAGE}/new/connection">Send connection logs</a><a href="${PAGE}/new/controller">Send Bluetooth controller logs</a>
+      <details><summary>Manual upload</summary><a href="${MANUAL}">Attach an existing ZIP</a></details></main></html>`,
+      {headers:{'Content-Type':'text/html;charset=utf-8','Cache-Control':'no-store','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'"}});
+  }
+  if (request.method === 'GET' && url.pathname === MANUAL) return page({user});
   if (request.method !== 'POST' || request.headers.get('Origin') !== base) return page({user,error:'Open the report form to continue.',status:403});
   if (url.pathname === PAGE + '/sign-out') return redirect(PAGE,[cookie(SESSION_COOKIE,'',0)]);
-  if (url.pathname !== PAGE || !user) return page({error:'Sign in with Discord before sending.',status:401});
+  if (![PAGE, MANUAL].includes(url.pathname) || !user) return page({error:'Sign in with Discord before sending.',status:401});
 
   let description = '', reference;
   try {

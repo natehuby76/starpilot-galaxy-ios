@@ -36,7 +36,11 @@ test('Galaxy browser OAuth returns to a private report form and submits only the
   const open = (path, options) => worker.fetch(new Request(base+path,options),runtime);
   let challenge, newRequest, owner='555';
   try {
-    assert.match(await (await open(web)).text(), /Sign in with Discord/);
+    const landing=await (await open(web)).text();
+    assert.match(landing,/\/new\/connection/);
+    assert.match(landing,/\/new\/controller/);
+    assert.doesNotMatch(landing,/type="file"/);
+    assert.match(await (await open(web+'/manual')).text(), /Sign in with Discord/);
     const start = await open(web+'/sign-in');
     assert.equal(start.status,303);
     const authorize = new URL(start.headers.get('Location'));
@@ -53,7 +57,7 @@ test('Galaxy browser OAuth returns to a private report form and submits only the
     assert.equal(result.headers.get('Location'),web);
     assert.doesNotMatch(result.headers.getSetCookie().join(' '), /secret-token|secret-refresh/);
     const session = result.headers.getSetCookie()[1].split(';')[0];
-    const html = await (await open(web,{headers:{Cookie:session}})).text();
+    const html = await (await open(web+'/manual',{headers:{Cookie:session}})).text();
     assert.match(html, /&lt;Sample&gt;/);
     assert.match(html, /Diagnostic ZIP/);
     const form = new FormData();
@@ -76,7 +80,7 @@ test('Galaxy browser OAuth returns to a private report form and submits only the
     assert.equal(sends[1].controllerLog,true);
     const ticket=web+'/fresh/'+'b'.repeat(64);
     assert.match(await (await open(ticket)).text(),/Sign in with Discord/);
-    assert.match(await (await open(ticket,{headers:{Cookie:session}})).text(),/Open Galaxy/);
+    assert.match(await (await open(ticket,{headers:{Cookie:session}})).text(),/I’m on the comma screen/);
     const archive=Buffer.from(await (await diagnosticZip(controllerLog,'bluetooth-log.json')).arrayBuffer()).toString('base64');
     const capture=new URLSearchParams({archive});
     const post=origin=>open(ticket,{method:'POST',body:capture,headers:{Origin:origin,Cookie:session}});
