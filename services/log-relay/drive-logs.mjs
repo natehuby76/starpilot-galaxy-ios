@@ -188,7 +188,7 @@ export async function driveObject(request,storage,env) {
       const page = record.kind === 'controller' ? 'Bluetooth' : 'Networks';
       const link = record.origin+(capture ? '/report/galaxy/fresh/' : '/drive/')+record.token;
       const content = capture
-        ? 'Support requested '+(record.kind === 'controller' ? 'physical controller diagnostics' : 'phone app connection diagnostics')+'. Sign in on your phone to get your code, then enter it on the comma in Galaxy → '+page+' → Connection logs → Send to existing Discord thread.'
+        ? 'Support requested '+(record.kind === 'controller' ? 'physical controller diagnostics' : 'phone app connection diagnostics')+'. Tap Get my Galaxy code and sign in on your phone. If the app cannot connect, use Galaxy on the comma or open its Local Galaxy address in a browser on the same Wi-Fi. The comma needs internet to find the report and send logs. In Galaxy → Galaxy Access & Connections → '+page+' → Connection logs → Send to existing Discord thread.'
         : 'Submit your drive logs privately:';
       if(env.DISCORD_BOT_TOKEN){
         result = await fetch('https://discord.com/api/v10/channels/'+threadID+'/messages',{
