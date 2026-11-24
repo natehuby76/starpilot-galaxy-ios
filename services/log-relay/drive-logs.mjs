@@ -1,3 +1,4 @@
+import {caseInteraction} from './case-actions.mjs';
 import {botPost} from './bot-delivery.mjs';
 import {rememberDriveMessage,webhookMessage} from './codex-review.mjs';
 import { getReportThread, supportTags, supportForum } from './thread-tags.mjs';
@@ -295,7 +296,7 @@ async function rejectDelivery(response,state,storage){
 
 
 // Discord delivers signed interactions only when this Worker is configured as the application's endpoint.
-export async function driveInteraction(request,env,origin) {
+export async function driveInteraction(request,env,origin,ctx) {
   const key=env.DISCORD_PUBLIC_KEY;
   const sig=request.headers.get('X-Signature-Ed25519')||'';
   const ts=request.headers.get('X-Signature-Timestamp')||'';
@@ -307,6 +308,7 @@ export async function driveInteraction(request,env,origin) {
   const interaction=JSON.parse(raw);
   if(interaction.type===1)return reply({type:1});
   const answer=content=>reply({type:4,data:{content,flags:64,allowed_mentions:{parse:[]}}});
+  if([3,5].includes(interaction.type))return caseInteraction(interaction,env,origin,ctx);
   if(interaction.type!==2||interaction.data?.name!=='request-logs')return answer('Unknown command.');
   const staff=[env.REPORT_MAINTAINER_ID,env.ANDROID_REPORT_MAINTAINER_ID].filter(Boolean);
   if(!staff.includes(interaction.member?.user?.id))return answer('A support maintainer can request drive logs.');

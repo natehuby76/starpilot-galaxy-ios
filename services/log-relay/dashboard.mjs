@@ -1,3 +1,5 @@
+import {caseButtons,enableCaseControls} from './case-actions.mjs';
+import {botPost} from './bot-delivery.mjs';
 import {prepareReview,queueReview,reviewStatus,reviewWorker} from './codex-review.mjs';
 import {issueDriveLink,sendDriveInvite} from './drive-logs.mjs';
 import {getReportThread,nextReportTags,discordTags,supportTags} from './thread-tags.mjs';
@@ -12,7 +14,7 @@ export async function dashboardAPI(request,env,platform,readJSON,json){
  const index=env.REPORTS.get(env.REPORTS.idFromName('dashboard:'+platform));
  if(platform==='ios'&&path.endsWith('/review-worker'))return reviewWorker(env,body);
  if(platform==='ios'&&path.endsWith('/review-status'))return reviewStatus(env,body.id);
- if(path.endsWith('/codex-review') || path.endsWith('/tags') || path.endsWith('/drive-link')) {
+ if(path.endsWith('/case-controls') || path.endsWith('/codex-review') || path.endsWith('/tags') || path.endsWith('/drive-link')) {
   if(!/^\d{1,20}$/.test(body.userID||'')||typeof body.reference!=='string')return json({error:'Select a report first.'},400);
   const response=await env.REPORTS.get(env.REPORTS.idFromName(body.userID)).fetch('https://reports/dashboard-record',{method:'POST',body:JSON.stringify({platform,userID:body.userID,reference:body.reference})});
   if(!response.ok)return response;
@@ -22,6 +24,11 @@ export async function dashboardAPI(request,env,platform,readJSON,json){
    if(path.endsWith('/drive-link') && body.send===true)return sendDriveInvite(env,id,body.token);
    if(path.endsWith('/drive-link'))return await issueDriveLink(env,id,new URL(request.url).origin,record,['connection','controller'].includes(body.kind) ? body.kind : 'drive');
    let thread=await getReportThread(env,id);
+   if(path.endsWith('/case-controls')){
+    await enableCaseControls(env);
+    const posted=await botPost(env,id,{content:'Report controls',components:caseButtons(body.userID,platform),allowed_mentions:{parse:[]}});
+    return json(posted.ok?{sent:true}:{error:'Discord declined the report controls.'},posted.ok?200:503);
+   }
    if(body.save===true){
     if(!Array.isArray(body.expected)||JSON.stringify([...thread.applied_tags].sort())!==JSON.stringify([...body.expected].sort()))return json({error:'Tags changed in Discord. Reload tags before saving.'},409);
     if(thread.thread_metadata?.archived)return json({error:'Unarchive this thread in Discord before changing tags.'},409);
@@ -29,7 +36,7 @@ export async function dashboardAPI(request,env,platform,readJSON,json){
     thread=await discordTags(env,'/channels/'+id,{applied_tags:tags});
     if(JSON.stringify([...(thread.applied_tags||[])].sort())!==JSON.stringify([...tags].sort()))throw Error('Tag update was not confirmed. Reload tags.');
    }
-   return json({tags:thread.applied_tags,status:['Closed','In Progress','Open'].find(n=>thread.applied_tags.includes(supportTags[n]))||'Open',topics:['Navigation','CarPlay','Galaxy'].filter(n=>thread.applied_tags.includes(supportTags[n])),archived:!!thread.thread_metadata?.archived,saved:body.save===true});
+   return json({assignee:record.assignee,priority:record.priority,duplicate:record.duplicate,tags:thread.applied_tags,status:['Closed','In Progress','Open'].find(n=>thread.applied_tags.includes(supportTags[n]))||'Open',topics:['Navigation','CarPlay','Galaxy'].filter(n=>thread.applied_tags.includes(supportTags[n])),archived:!!thread.thread_metadata?.archived,saved:body.save===true});
   }catch(e){return json({error:e.message},503);}
  }
  if(path.endsWith('/reports')) return index.fetch('https://reports/dashboard-list',{method:'POST',body:JSON.stringify({platform,cursor:body.cursor})});

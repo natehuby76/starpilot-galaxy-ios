@@ -2,6 +2,7 @@ import {botPost} from './bot-delivery.mjs';
 import { browserDiscordCallback, galaxyReportPage } from './galaxy-report.mjs';
 import { diagnosticZip } from './diagnostic-zip.mjs';
 import {claimReview, reviewStorage} from './codex-review.mjs';
+import {caseAction,caseButtons,enableCaseControls} from './case-actions.mjs';
 import {driveObject, drivePage, driveDownload, driveInteraction} from './drive-logs.mjs';
 import {filterReportThreads,getReportThread,supportTags} from './thread-tags.mjs';
 import {dashboardAuth} from './dashboard-auth.mjs';
@@ -42,13 +43,17 @@ async function discord(path, options = {}) {
 }
 export default {
   async scheduled(controller, env) {
+    if(env.DISCORD_PUBLIC_KEY && env.DISCORD_BOT_TOKEN){
+      const settings=env.REPORTS.get(env.REPORTS.idFromName('companion-bot-setup'));
+      try{await settings.fetch('https://reports/enable-controls',{method:'POST'});}catch{console.warn('Discord report controls setup pending');}
+    }
     for (const notice of buildNotifications(env)) {
       if (!notice.ready) continue;
       const id = env.REPORTS.idFromName(notice.userID);
       await env.REPORTS.get(id).fetch('https://reports/build-notice', {method:'POST', body:JSON.stringify(notice)});
     }
   },
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     try {
       if (url.pathname === '/report/galaxy' || url.pathname.startsWith('/report/galaxy/') || browserDiscordCallback(url)) {
@@ -56,7 +61,7 @@ export default {
           submit: body => env.REPORTS.get(env.REPORTS.idFromName(body.user.id)).fetch('https://reports/submit',
             {method:'POST', body:JSON.stringify({...body, platform:body.platform || 'ios', source:'galaxy'})})});
       }
-      if (url.pathname === '/drive-interactions' && request.method === 'POST') return await driveInteraction(request,env,BASE);
+      if (url.pathname === '/drive-interactions' && request.method === 'POST') return await driveInteraction(request,env,BASE,ctx);
       const ticket=/^\/codex-review\/([a-f0-9]{64})$/.exec(url.pathname);
       if(ticket && request.method==='POST')return claimReview(env,ticket[1]);
       const file=/^\/drive-file\/([a-f0-9]{64})\/([a-f0-9]{64})$/.exec(url.pathname);
@@ -71,7 +76,7 @@ export default {
         const owner=env.REPORTS.get(env.REPORTS.idFromName('dashboard:'+authRoute[1]));
         return await owner.fetch('https://reports/auth-'+authRoute[2],{method:'POST',body:JSON.stringify({...body,ip:request.headers.get('CF-Connecting-IP')||'unknown'})});
       }
-      const releaseRoute = /^\/v1\/(android|ios)\/(?:build-notice(?:\/status)?|dashboard\/(?:reports|commits|import|setup-link|tags|drive-link|codex-review|review-status|review-worker))$/.exec(url.pathname);
+      const releaseRoute = /^\/v1\/(android|ios)\/(?:build-notice(?:\/status)?|dashboard\/(?:reports|commits|import|setup-link|tags|case-controls|drive-link|codex-review|review-status|review-worker))$/.exec(url.pathname);
       if (request.method === 'POST' && releaseRoute) {
         // Each platform has its own credential; neither grants Discord sign-in or cross-platform release access.
         const platform = releaseRoute[1];
@@ -248,9 +253,17 @@ export class Reports {
   async fetch(request) {
     {
       const path = new URL(request.url).pathname;
+      if(path==='/enable-controls'){
+        if(!await this.ctx.storage.get('enabled')){
+          await enableCaseControls(this.env);
+          await this.ctx.storage.put('enabled',true);
+        }
+        return Response.json({enabled:true});
+      }
       if(path.startsWith('/review/'))return reviewStorage(this.ctx.storage,path.slice(8),await request.json());
       if(path.startsWith('/drive/')) return driveObject(request,this.ctx.storage,this.env);
       const body = await request.json();
+      if(path==='/case-action')return caseAction(this.ctx.storage,this.env,body);
       if(path.startsWith('/auth-'))return dashboardAuth(this.ctx.storage,path,body);
       if (path === '/build-notice' || path === '/build-notice-status') return this.buildNotice(body, path === '/build-notice-status');
       const platform = platformOf(body.platform);
@@ -281,7 +294,7 @@ export class Reports {
         const match=/^https:\/\/discord\.com\/channels\/(\d+)\/(\d+)\/\d+$/.exec(mapping?.threadURL||'');
         const thread=match && await this.ctx.storage.get('thread:'+match[2]);
         if(!thread || platformOf(thread.platform)!==platform) return json({error:'Report not found for this platform'},404);
-        return json({platform,userID:body.userID,reference:ref,title:thread.title,reporter:thread.reporter||'Discord user '+body.userID,created:thread.created,threadURL:mapping.threadURL, ...(mapping.botPublic && {botPublic:true}), ...(mapping.botPrivateURL && {botPrivateURL:mapping.botPrivateURL})});
+        return json({platform,userID:body.userID,reference:ref,title:thread.title,assignee:thread.assignee,priority:thread.priority,duplicate:thread.duplicate,reporter:thread.reporter||'Discord user '+body.userID,created:thread.created,threadURL:mapping.threadURL, ...(mapping.botPublic && {botPublic:true}), ...(mapping.botPrivateURL && {botPrivateURL:mapping.botPrivateURL})});
       }
       if(path === '/dashboard-history') {
         const prefix=platform==='android'?'reference:android:':'reference:';
@@ -360,6 +373,7 @@ export class Reports {
         content: `Report from <@${body.user.id}> (${name})${notify}\nReference: ${body.reference}\n\n${body.description}`,
         allowed_mentions: {parse: [], users: recipients},
         applied_tags: reportTags(this.env, platform, body.source === "galaxy" ? "Galaxy " + body.description : body.description)};
+      if(this.env.DISCORD_BOT_TOKEN && this.env.DISCORD_PUBLIC_KEY)payload.components=caseButtons(body.user.id,platform);
       if (existingThread) { delete payload.thread_name; delete payload.applied_tags; webhook.searchParams.set('thread_id', body.threadID); }
       uncertain.title = title;
       // Persist progress only, never diagnostic contents. Unknown outcomes stay blocked.
