@@ -49,7 +49,7 @@ def queue_request(key, body):
     req = urllib.request.Request(
         ORIGIN + '/v1/ios/dashboard/review-worker',
         method='POST', data=json.dumps(body).encode(),
-        headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},
+        headers={'Authorization':'Bearer '+key,'Content-Type':'application/json','User-Agent':'StarPilot-CodexReview/1'},
     )
     with urllib.request.build_opener(NoRedirect()).open(req,timeout=60) as response:
         return json.load(response)
