@@ -5,7 +5,7 @@ import {supportForum} from './thread-tags.mjs';
 
 function fixture(t){
   const records=new Map(), posts=[];
-  const store={get:async k=>structuredClone(records.get(k)),put:async(k,v)=>records.set(k,structuredClone(v)),transaction:async cb=>cb(store),setAlarm:async()=>{}};
+  const store={get:async k=>structuredClone(records.get(k)),put:async(k,v)=>records.set(k,structuredClone(v)),delete:async k=>records.delete(k),transaction:async cb=>cb(store),setAlarm:async()=>{}};
   const env={DISCORD_WEBHOOK_URL:'https://discord.com/api/webhooks/123/public',DISCORD_PRIVATE_WEBHOOK_URL:'https://discord.com/api/webhooks/456/private',DISCORD_PRIVATE_FORUM:'true',DISCORD_BOT_TOKEN:'test'};
   const run=(path,init)=>driveObject(new Request('https://reports'+path,init),store,env);
   env.REPORTS={idFromName:x=>x,get:()=>({fetch:(url,init)=>String(url).endsWith('/review/remember')?Response.json({saved:true}):driveObject(new Request(url,init),store,env)})};
@@ -13,15 +13,16 @@ function fixture(t){
   t.mock.method(globalThis,'fetch',async (url,init)=>{
     const target=new URL(url);
     if(target.pathname==='/api/v10/channels/777')return Response.json({id:'777',name:'test thread',type:11,parent_id:supportForum,applied_tags:[]});
-    if(target.pathname==='/api/v10/channels/777/messages'){
-      assert.equal(init.headers.Authorization,'Bot test');
-      posts.push({invite:JSON.parse(init.body)});
-      return Response.json({id:'456',channel_id:'777'});
-    }
     if(target.pathname==='/api/webhooks/123/public/messages/777')return Response.json({id:'777',channel_id:'777'});
     const priv=target.pathname.endsWith('/private');
     if(init.method!=='POST')return Response.json({guild_id:'1',channel_id:priv?'888':supportForum});
     if(!priv && rejectReceipt){rejectReceipt=false;return new Response('',{status:429});}
+    if(!priv&&typeof init.body==='string'&&JSON.parse(init.body).content.startsWith('Submit your drive logs privately:')){
+      assert.equal(target.searchParams.get('thread_id'),'777');
+      assert.equal(target.searchParams.get('wait'),'true');
+      posts.push({invite:JSON.parse(init.body)});
+      return Response.json({id:'456',channel_id:'777'});
+    }
     posts.push({priv,body:init.body});
     if(!priv)assert.equal(target.searchParams.get('thread_id'),'777');
     return Response.json({id:'111',channel_id:priv?'222':'777'});
@@ -82,7 +83,7 @@ test('R2 download requires the private download token and expires',async t=>{
   assert.equal((await f.run('/drive/file/'+state.downloadToken)).status,404);
 });
 
-test('bot sends the issued link once to its original thread',async t=>{
+test('support webhook sends the issued link once to its original thread',async t=>{
   const f=fixture(t);
   const {url}=await (await issueDriveLink(f.env,'777','https://example.com')).json();
   const token=new URL(url).pathname.split('/').pop();
@@ -100,8 +101,9 @@ test('dashboard can issue a link for a saved report without bot access',async t=
   const response=await issueDriveLink(f.env,'777','https://example.com',report);
   assert.equal(response.status,200);
   const {url}=await response.json();
-  const blocked=await sendDriveInvite(f.env,'777',new URL(url).pathname.split('/').pop());
-  assert.equal(blocked.status,503);
-  assert.match((await blocked.json()).error,/Your drive log link is ready to copy/);
-  assert.equal(f.posts.length,0);
+  const token=new URL(url).pathname.split('/').pop();
+  assert.equal((await sendDriveInvite(f.env,'778',token)).status,409);
+  assert.equal((await sendDriveInvite(f.env,'777',token)).status,200);
+  assert.equal((await sendDriveInvite(f.env,'777',token)).status,200);
+  assert.equal(f.posts.length,1);
 });

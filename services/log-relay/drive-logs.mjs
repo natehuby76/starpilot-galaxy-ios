@@ -33,7 +33,6 @@ export async function issueDriveLink(env, threadID, origin, report) {
 
 export async function sendDriveInvite(env, threadID, token) {
   if (!/^[a-f0-9]{64}$/.test(token)) return reply({error:'Create a link first.'},400);
-  if(!env.DISCORD_BOT_TOKEN)return reply({error:'Discord posting needs the support bot. Your drive log link is ready to copy.'},503);
   return object(env,token).fetch('https://reports/drive/invite',{method:'POST',body:JSON.stringify({threadID})});
 }
 
@@ -132,17 +131,39 @@ export async function driveObject(request,storage,env) {
     const {threadID}=await request.json();
     if(threadID!==record.threadID)return reply({error:'Select the original thread.'},409);
     if(await storage.get('postedInvite'))return reply({sent:true});
-    const thread=await getReportThread(env,threadID);
-    if(thread.thread_metadata?.archived||thread.thread_metadata?.locked||thread.applied_tags.includes(supportTags.Closed))return reply({error:'Thread is closed.'},409);
-    const result=await fetch('https://discord.com/api/v10/channels/'+threadID+'/messages',{
-      method:'POST',headers:{Authorization:'Bot '+env.DISCORD_BOT_TOKEN,'Content-Type':'application/json'},
-      redirect:'manual',signal:AbortSignal.timeout(10000),
-      body:JSON.stringify({content:'Submit your drive logs privately: <'+record.origin+'/drive/'+record.token+'>',allowed_mentions:{parse:[]},nonce:record.token.slice(0,24),enforce_nonce:true})
+    if(!env.DISCORD_WEBHOOK_URL)return reply({error:'Support thread posting is unavailable.'},503);
+    if(env.DISCORD_BOT_TOKEN){
+      const thread=await getReportThread(env,threadID);
+      if(thread.thread_metadata?.archived||thread.thread_metadata?.locked||thread.applied_tags.includes(supportTags.Closed))
+        return reply({error:'Thread is closed.'},409);
+    }
+    const reserved=await storage.transaction(async tx=>{
+      if(await tx.get('postedInvite'))return 'sent';
+      if(await tx.get('invitePending'))return 'pending';
+      await tx.put('invitePending',true);
+      return 'new';
     });
-    if(!result.ok)return reply({error:'Discord did not confirm the invitation. Check the thread.'},503);
-    const message=await result.json();
-    if(message.channel_id!==threadID||!/^\d+$/.test(message.id))return reply({error:'Unconfirmed Discord invitation.'},503);
+    if(reserved==='sent')return reply({sent:true});
+    const unconfirmed=()=>reply({error:'Discord delivery is pending or unconfirmed. Open the thread to check before trying again.'},409);
+    if(reserved==='pending')return unconfirmed();
+    let result;
+    try {
+      result=await postWebhook(env.DISCORD_WEBHOOK_URL,threadID,{
+        content:'Submit your drive logs privately: <'+record.origin+'/drive/'+record.token+'>',
+        allowed_mentions:{parse:[]}
+      });
+    } catch {
+      return unconfirmed();
+    }
+    if(result.status>=400&&result.status<500&&result.status!==408){
+      await storage.delete('invitePending');
+      return reply({error:result.status===429?'Discord is rate limiting posts. Try again shortly.':'Discord rejected the post. Check that the support thread is open.'},result.status===429?429:503);
+    }
+    if(!result.ok)return unconfirmed();
+    const message=await result.json().catch(()=>null);
+    if(message?.channel_id!==threadID||!/^\d+$/.test(message.id))return unconfirmed();
     await storage.put('postedInvite',message.id);
+    await storage.delete('invitePending');
     return reply({sent:true});
   }
   if(action==='/drive/status')return reply({open:true});
