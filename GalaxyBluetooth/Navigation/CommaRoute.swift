@@ -67,6 +67,7 @@ struct CommaRouteSnapshot: Decodable {
     let polyline6: String?
     let instruction: CommaInstruction?
     let error: String?
+    var arrived = false
     var phoneTripOnroad = false
     var routeUnavailable = false
     func needsPhoneReroute(for revision: String, offRouteSamples: Int) -> Bool {
@@ -96,6 +97,21 @@ struct CommaRouteSnapshot: Decodable {
             guard destination != nil, routeVersion != nil, instruction != nil,
                   let age = ageSeconds, age <= 3 else { throw NavigationContractError.invalidResponse }
         }
+    }
+}
+
+struct TripArrival {
+    private var firstSample: Date?
+
+    mutating func update(distance: Double, remaining: Double, sample: Date) -> Bool {
+        guard distance <= 25, remaining <= 50 else { firstSample = nil; return false }
+        if let firstSample {
+            let elapsed = sample.timeIntervalSince(firstSample)
+            if (3...8).contains(elapsed) { return true }
+            if (0..<3).contains(elapsed) { return false }
+        }
+        firstSample = sample
+        return false
     }
 }
 
@@ -152,10 +168,9 @@ enum NavigationMapMotion {
         speed >= 2.5 && (hasMeasuredSpeed || displacement >= 3)
     }
 
-    static func carPlayAnimationDuration(interval: TimeInterval, fixAge: TimeInterval) -> TimeInterval {
-        // Shorten late updates without turning every delayed Bluetooth sample into a jump and pause.
-        let cadence = min(1.2, max(0.15, interval))
-        return min(cadence, max(cadence * 0.65, cadence - max(0, fixAge)))
+    static func carPlayAnimationDuration(interval: TimeInterval) -> TimeInterval {
+        // Use the sample cadence so the camera keeps moving between Bluetooth fixes.
+        min(4, max(0.1, interval))
     }
 
     // At the same street-detail zoom, a shorter map covers less ground ahead.

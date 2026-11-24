@@ -365,6 +365,8 @@ final class NavigationModel: NSObject, ObservableObject, @preconcurrency CLLocat
     private var offRouteSamples = 0
     private var lastDeviationFix = Date.distantPast
     private var lastMovingFix: CLLocation?
+    private var arrival = TripArrival()
+    private(set) var arrivedAtDestination = false
     private var nextRerouteAttempt = Date.distantPast
     @Published private(set) var reroutingPhoneTrip = false
 
@@ -427,6 +429,21 @@ final class NavigationModel: NSObject, ObservableObject, @preconcurrency CLLocat
         return location
     }
 
+    // A CarPlay map can still show the phone's position between guidance updates.
+    func carPlayLocation(at date: Date, commaSpeed: Double = -1) -> CLLocation? {
+        guard navigating && usingComma else { return goodLocation }
+        let comma = commaFeedReady && (0...4).contains(date.timeIntervalSince(commaPositionSampleDate))
+            ? commaPosition.map { CLLocation(coordinate: $0, altitude: 0, horizontalAccuracy: -1,
+                verticalAccuracy: -1, course: commaHeading, speed: commaSpeed, timestamp: commaPositionSampleDate) }
+            : nil
+        if let phone = goodLocation, phone.horizontalAccuracy <= 15,
+           (0...3).contains(date.timeIntervalSince(phone.timestamp)),
+           comma.map({ phone.distance(from: $0) <= 30 }) ?? true {
+            return phone
+        }
+        return comma
+    }
+
     override init() {
         super.init()
         manager.delegate = self
@@ -479,6 +496,7 @@ final class NavigationModel: NSObject, ObservableObject, @preconcurrency CLLocat
         }
         guard !usingComma else { return }
         updateProgress(route, at: fresh)
+        if checkPhoneArrival(route, at: fresh) { return }
         if followsUser {
             withAnimation(.linear(duration: UIAccessibility.isReduceMotionEnabled ? 0 : 0.8)) {
                 camera = .camera(MapCamera(centerCoordinate: fresh.coordinate, distance: followCameraDistance,
@@ -804,6 +822,7 @@ final class NavigationModel: NSObject, ObservableObject, @preconcurrency CLLocat
         }
         onEvent?("Navigation started; comma: \(usingComma)")
         followsUser = true
+        arrivedAtDestination = false; arrival = TripArrival()
         navigating = true; stepIndex = 0
         if !usingComma, let location = goodLocation, let route { updateProgress(route, at: location) }
     }
@@ -838,12 +857,19 @@ final class NavigationModel: NSObject, ObservableObject, @preconcurrency CLLocat
                 return
             }
         }
+        finishLocalTrip(phoneOnly ? "Phone route ended. Comma was left unchanged." : "Route ended.")
+    }
+
+    private func finishLocalTrip(_ message: String, arrived: Bool = false) {
+        arrivedAtDestination = arrived; arrival = TripArrival()
         directions?.cancel(); revision = UUID(); recalculating = false
         usingComma = false; positionDisplayGeneration += 1; commaPolyline = nil; cachedCommaPolyline = nil; commaPosition = nil; commaRouteVersion = nil; commaFeedReady = false
         reroutingPhoneTrip = false
         navigating = false; routes = []; plannedStart = nil; destination = nil; commaDestination = nil; commaIdentity = nil
-        onEvent?("Navigation ended; phone only: \(phoneOnly)")
-        error = ""; instruction = ""; notice = phoneOnly ? "Phone route ended. Comma was left unchanged." : "Route ended."
+        onEvent?(arrived ? "Navigation ended on arrival" : "Navigation ended")
+        error = ""; instruction = ""; notice = message
+        remainingDistance = 0; remainingTime = 0; distanceToTurn = 0
+        updateJunction(nil)
         camera = .userLocation(fallback: .automatic)
     }
 
@@ -880,6 +906,10 @@ final class NavigationModel: NSObject, ObservableObject, @preconcurrency CLLocat
                     clearCommaDisplay(snapshot.status == "inactive" ? "Comma navigation has ended." : "Comma’s destination changed. Check its screen.", discardRoute: true)
                     try await Task.sleep(for: .seconds(2))
                     continue
+                }
+                if snapshot.ready && snapshot.arrived {
+                    finishLocalTrip("You’ve arrived.", arrived: true)
+                    return
                 }
                 confirmedPhoneTripRevision = snapshot.phoneTripRevision
                 if !showingSentRoute { updateJunction(nil) }
@@ -949,6 +979,14 @@ final class NavigationModel: NSObject, ObservableObject, @preconcurrency CLLocat
                 commaManeuverType = instructions.type; commaManeuverModifier = instructions.modifier
                 commaFeedReady = true; commaFeedMessage = ""; error = ""
                 if let position = snapshot.position, snapshot.positionValidForSeconds == nil || snapshot.positionValidForSeconds! > Date().timeIntervalSince(sampledAfter) {
+                    if !connection.nativeNavigation {
+                        let distance = CLLocation(latitude: position.latitude, longitude: position.longitude)
+                            .distance(from: CLLocation(latitude: expected.latitude, longitude: expected.longitude))
+                        if arrival.update(distance: distance, remaining: remainingDistance, sample: sampledAfter) {
+                            finishLocalTrip("You’ve arrived.", arrived: true)
+                            return
+                        }
+                    }
                     commaPositionExpires = snapshot.positionValidForSeconds.map { sampledAfter.addingTimeInterval($0) }
                     commaPositionSampleDate = sampledAfter
                     commaBearing = position.bearing
@@ -1122,6 +1160,17 @@ final class NavigationModel: NSObject, ObservableObject, @preconcurrency CLLocat
         checkCommaFreshness()
     }
     #endif
+
+    private func checkPhoneArrival(_ route: PhoneRoute, at fix: CLLocation) -> Bool {
+        guard route.polyline.pointCount > 0, !commandRunning, fix.horizontalAccuracy <= 20,
+              (0...4).contains(-fix.timestamp.timeIntervalSinceNow),
+              fix.speed < 3 else { arrival = TripArrival(); return false }
+        let end = route.polyline.points()[route.polyline.pointCount - 1].coordinate
+        let distance = fix.distance(from: CLLocation(latitude: end.latitude, longitude: end.longitude))
+        guard arrival.update(distance: distance, remaining: remainingDistance, sample: fix.timestamp) else { return false }
+        finishLocalTrip("You’ve arrived.", arrived: true)
+        return true
+    }
 
     private func updateProgress(_ route: PhoneRoute, at location: CLLocation) {
         let steps = route.steps.filter { !$0.instructions.isEmpty && $0.polyline.pointCount > 0 }

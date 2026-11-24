@@ -299,8 +299,9 @@ final class CarPlaySceneDelegate: NSObject, CPTemplateApplicationSceneDelegate, 
         menu.updateSections([CPListSection(items: items)])
     }
 
-    private func stopGuidance() {
-        navigationSession?.cancelTrip()
+    private func stopGuidance(arrived: Bool = false) {
+        if arrived { navigationSession?.finishTrip() }
+        else { navigationSession?.cancelTrip() }
         navigationSession = nil; trip = nil; maneuver = nil; tripDestination = ""
     }
 
@@ -332,7 +333,7 @@ final class CarPlaySceneDelegate: NSObject, CPTemplateApplicationSceneDelegate, 
             } ?? []
         }
         guard nav.navigating, let destination = nav.destination else {
-            stopGuidance()
+            stopGuidance(arrived: nav.arrivedAtDestination)
             return
         }
         let key = "\(destination.coordinate.latitude),\(destination.coordinate.longitude)"
@@ -1541,7 +1542,8 @@ private final class CompanionCarPlayMap: UIViewController, MKMapViewDelegate {
             } ?? []
             if let next { map.addOverlays([MKMultiPolyline([next]), next], level: .aboveRoads) }
         }
-        let coordinate = navigation.usingComma ? (navigation.commaFeedReady ? navigation.commaPosition : nil) : navigation.goodLocation?.coordinate
+        let fix = navigation.carPlayLocation(at: .now)
+        let coordinate = fix?.coordinate
         if let coordinate {
             let now = Date()
             let location = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
@@ -1567,7 +1569,7 @@ private final class CompanionCarPlayMap: UIViewController, MKMapViewDelegate {
                 }
             } else { position.coordinate = displayed }
             if !hadPosition { map.addAnnotation(position) }
-            let course = navigation.usingComma ? navigation.commaHeading : navigation.goodLocation?.course ?? -1
+            let course = fix?.course ?? -1
             let phone = navigation.goodLocation
             let hasSpeed = phone.map { (0...2).contains(-$0.timestamp.timeIntervalSinceNow) && $0.speed >= 0 && $0.distance(from: location) <= 30 } ?? false
             let canRotate = !hadPosition || (hasSpeed ? (phone?.speed ?? 0) >= 2.5 : filteredSpeed >= 2.5 && now.timeIntervalSince(lastMovement) < 1)

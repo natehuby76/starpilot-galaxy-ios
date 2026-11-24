@@ -13,6 +13,8 @@ struct ConnectionSettingsView: View {
     @ObservedObject var location: PhoneLocation
     @ObservedObject var audio: AudioPairing
     @ObservedObject private var sentry = SentryPush.shared
+    @AppStorage(ShareGroup.sentryPreviewCameraKey, store: UserDefaults(suiteName: ShareGroup.id))
+    private var sentryPreviewCamera = ShareGroup.SentryPreviewCamera.wide
     @ObservedObject private var tunnel: TunnelTransport
     let returningFromGalaxy: Bool
     let select: (CompanionTab) -> Void
@@ -50,6 +52,8 @@ struct ConnectionSettingsView: View {
     @State private var checked = false
     @State private var connectingCommaID: String?
     @State private var showHotspotJoin = false
+    @State private var showLocalQR = false
+    @State private var localQRError = ""
 
     private var accent: Color { colorScheme == .dark ? Color(red: 0.68, green: 0.48, blue: 0.96) : Color(red: 0.45, green: 0.26, blue: 0.73) }
     private var background: Color { colorScheme == .dark ? Color(red: 0.035, green: 0.035, blue: 0.078) : Color(red: 0.93, green: 0.90, blue: 0.98) }
@@ -58,7 +62,7 @@ struct ConnectionSettingsView: View {
     private var connected: Bool { model.transport.connected }
     private var pairing: Bool { model.pairingInProgress }
     private var needsPairing: Bool {
-        (model.mode == .bluetooth && (Data(hex: model.pairingKey)?.count != 32 || !bluetooth.hasSavedDevice))
+        model.bluetoothSetupRequired
             || (model.mode != .lan && bluetooth.pairingRecoveryNeeded)
     }
     private var needsTunnelLogin: Bool { model.mode == .automatic && tunnel.loginRequired }
@@ -79,7 +83,13 @@ struct ConnectionSettingsView: View {
         return "Connect"
     }
     private var checking: Bool { model.matchingGalaxy || assets.checking }
-    private var status: String { pairing ? "Pairing with comma…" : connected ? "Connected via \(model.transport.label)" : connecting ? "Connecting to comma…" : "Not connected" }
+    private var status: String {
+        if pairing { return "Pairing with comma…" }
+        if connected { return "Connected via \(model.transport.label)" }
+        if connecting { return "Connecting to comma…" }
+        if model.bluetoothSetupRequired { return model.connectionStatusLabel }
+        return "Not connected"
+    }
 
     init(model: AppModel, returningFromGalaxy: Bool, select: @escaping (CompanionTab) -> Void, submitReport: @escaping () -> Void) {
         self.model = model; self.returningFromGalaxy = returningFromGalaxy; self.select = select
@@ -156,6 +166,7 @@ struct ConnectionSettingsView: View {
                 }.presentationDetents([.medium, .large])
             }
             .sheet(isPresented: $showTunnel) { TunnelSetupView(model: model) }
+            .sheet(isPresented: $showLocalQR) { localQRScanner }
             .tint(accent)
             .alert("Join comma’s hotspot", isPresented: $showHotspotJoin) {
                 Button("OK", role: .cancel) {}
@@ -202,20 +213,22 @@ struct ConnectionSettingsView: View {
                 }
             }
             let layout = wide ? AnyLayout(HStackLayout(alignment: .top, spacing: 22)) : AnyLayout(VStackLayout(spacing: 20))
+            // Bound SwiftUI type depth on the launch screen. The device runtime can
+            // exhaust the main thread stack when resolving all panels as one type.
             layout {
                 VStack(alignment: .leading, spacing: 12) {
-                    connectionPanel()
+                    AnyView(connectionPanel())
                     if !model.legacyMessage.isEmpty { message(model.legacyMessage) }
                     if !server.error.isEmpty { message(server.error) }
                 }.frame(maxWidth: .infinity)
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Connection").font(.title3.bold()).accessibilityAddTraits(.isHeader)
-                    connectionModePanel
-                    connectionExtras
-                        .simultaneousGesture(TapGesture().onEnded { model.autoOpenGalaxyPending = false })
+                    AnyView(connectionModePanel)
+                    AnyView(connectionExtras
+                        .simultaneousGesture(TapGesture().onEnded { model.autoOpenGalaxyPending = false }))
                     Text("Preferences").font(.title3.bold()).accessibilityAddTraits(.isHeader).padding(.top, 8)
-                    preferences()
-                        .simultaneousGesture(TapGesture().onEnded { model.autoOpenGalaxyPending = false })
+                    AnyView(preferences()
+                        .simultaneousGesture(TapGesture().onEnded { model.autoOpenGalaxyPending = false }))
                 }.frame(maxWidth: .infinity)
             }
             Divider()
@@ -365,6 +378,13 @@ struct ConnectionSettingsView: View {
             if model.mode != .bluetooth && !connected && !pairing && (discovery.searching || !discovery.devices.isEmpty) {
                 discoveredCommas
             }
+            if model.mode != .bluetooth && !connected && !pairing {
+                Button(action: openLocalQRScanner) {
+                    Label("Scan local QR code", systemImage: "qrcode.viewfinder")
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }.disabled(connectingCommaID != nil || model.selectingDiscoveredComma)
+                if !localQRError.isEmpty { connectionMessage(localQRError) }
+            }
             if bluetooth.pairingRecoveryNeeded && model.mode == .bluetooth && !pairing && !connecting && !connected {
                 Button("Try saved pairing once more") {
                     bluetooth.retrySavedPairing()
@@ -413,6 +433,54 @@ struct ConnectionSettingsView: View {
             }
         }.multilineTextAlignment(.center).frame(maxWidth: .infinity)
             .fixedSize(horizontal: false, vertical: true).padding(.horizontal, 8).padding(.top, 3)
+    }
+
+    private func openLocalQRScanner() {
+        Task { @MainActor in
+            localQRError = ""
+            guard DataScannerViewController.isSupported else {
+                model.connectionLog.record("Local Wi-Fi QR scanner blocked: unsupported device")
+                localQRError = "QR scanning isn’t supported on this device. Enter the comma IP under Advanced connection options."
+                return
+            }
+            guard await AVCaptureDevice.requestAccess(for: .video) else {
+                model.connectionLog.record("Local Wi-Fi QR scanner blocked: camera permission denied")
+                localQRError = "Allow camera access in iPhone Settings, or enter the comma IP under Advanced connection options."
+                return
+            }
+            guard DataScannerViewController.isAvailable else {
+                model.connectionLog.record("Local Wi-Fi QR scanner blocked: camera unavailable")
+                localQRError = "Camera unavailable. Enter the comma IP under Advanced connection options."
+                return
+            }
+            model.connectionLog.record("Local Wi-Fi QR scanner opened")
+            showLocalQR = true
+        }
+    }
+
+    private var localQRScanner: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                Text("Scan the local Galaxy QR code on comma. Keep both devices on the same Wi-Fi or comma’s hotspot.")
+                    .font(.footnote).multilineTextAlignment(.center).padding()
+                GalaxyQRScanner { value in
+                    showLocalQR = false
+                    guard let address = LANTransport.localQRAddress(value) else {
+                        model.connectionLog.record("Local Wi-Fi QR rejected: expected a local Galaxy address")
+                        localQRError = "Scan the local Galaxy QR code, or enter the comma IP under Advanced connection options."
+                        return
+                    }
+                    model.connectionLog.record("Local Wi-Fi QR accepted: starting LAN verification")
+                    connectToDiscoveredComma(DiscoveredComma(id: address, name: "comma", address: address))
+                } failed: { message in
+                    model.connectionLog.record("Local Wi-Fi QR scanner failed")
+                    localQRError = message + " Enter the comma IP under Advanced connection options."
+                    showLocalQR = false
+                }
+            }
+            .navigationTitle("Scan local QR code").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { showLocalQR = false } } }
+        }
     }
 
     private func connectToDiscoveredComma(_ device: DiscoveredComma) {
@@ -571,11 +639,26 @@ struct ConnectionSettingsView: View {
                               Task { await sentry.setEnabled(enabled) }
                           }))
                 separator
+                if sentry.enabled {
+                    row("camera", title: "Sentry preview camera", subtitle: "Photo shown in notifications when Galaxy Tunnel is available") {
+                        Picker("Sentry preview camera", selection: $sentryPreviewCamera) {
+                            Text("Road").tag(ShareGroup.SentryPreviewCamera.wide)
+                            Text("Cabin").tag(ShareGroup.SentryPreviewCamera.cabin)
+                        }.pickerStyle(.menu).labelsHidden()
+                    }
+                    separator
+                }
                 if sentry.enabled && sentry.registered {
                     row("bell", title: "Test Sentry alerts", subtitle: sentry.status) {
-                        Button("Test") { Task { await sentry.test() } }
+                        Button(sentry.testingPhoto ? "Testing…" : "Test") {
+                            Task {
+                                let route: any GalaxyRequestTransport = model.lan.connected ? model.lan : model.tunnel
+                                await sentry.testPhoto(camera: ShareGroup.sentryPreviewCamera.rawValue,
+                                    tunnelReady: model.mode == .automatic && ShareGroup.tunnel != nil, over: route)
+                            }
+                        }.disabled(sentry.testingPhoto)
                             .font(.system(size: 12)).frame(minHeight: 44)
-                            .accessibilityLabel("Send test to this iPhone")
+                            .accessibilityLabel("Send a Sentry photo test to this iPhone")
                     }
                     Divider()
                 }
@@ -639,15 +722,15 @@ struct ConnectionSettingsView: View {
     }
 
     private func preferenceSection<Content: View>(_ title: LocalizedStringKey, expanded: Binding<Bool>,
-                                                  @ViewBuilder content: @escaping () -> Content) -> some View {
-        DisclosureGroup(isExpanded: expanded) {
-            VStack(alignment: .leading, spacing: 8, content: content)
+                                                  @ViewBuilder content: @escaping () -> Content) -> AnyView {
+        AnyView(DisclosureGroup(isExpanded: expanded) {
+            VStack(alignment: .leading, spacing: 8) { AnyView(content()) }
                 .padding(.bottom, 12)
         } label: {
             Text(title).font(.subheadline.weight(.semibold))
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .contentShape(Rectangle())
-        }.tint(accent).padding(.horizontal, 14)
+        }.tint(accent).padding(.horizontal, 14))
     }
 
     private var advancedControls: some View {
@@ -790,8 +873,12 @@ private struct TunnelSetupView: View {
                             defer { saving = false }
                             model.connectionLog.record("Tunnel login: Use tunnel tapped; checking session cookie")
                             let cookies = await store.httpCookieStore.allCookies()
-                            model.connectionLog.record("Tunnel login: cookie check; session present=\(cookies.contains { $0.name == "galaxy_session" }); valid session=\(TunnelTransport.loginCookie(cookies, url: loginURL) != nil)")
-                            guard let cookie = TunnelTransport.loginCookie(cookies, url: loginURL) else {
+                            let cookie = TunnelTransport.loginCookie(cookies, url: loginURL)
+                            let sessions = cookies.filter { $0.name == "galaxy_session" }
+                            let secure = sessions.filter(\.isSecure).count
+                            let expired = sessions.filter { $0.expiresDate.map { $0 <= Date() } ?? false }.count
+                            model.connectionLog.record("Tunnel login: cookie check; session count=\(sessions.count); secure=\(secure); expired=\(expired); usable=\(cookie != nil)")
+                            guard let cookie else {
                                 model.connectionLog.record("Tunnel login rejected: no valid secure unexpired session cookie")
                                 error = "Finish signing in to Galaxy first."; return
                             }
@@ -820,6 +907,7 @@ private struct TunnelSetupView: View {
                             } label: { Label("Scan comma’s QR code", systemImage: "qrcode.viewfinder") }
                             Button("Sign in") {
                                 guard let url = TunnelTransport.endpoint(address) else { error = "Paste your full Galaxy link, including its 16-character code."; return }
+                                model.connectionLog.record("Tunnel login started from entered link")
                                 error = ""; loginURL = url
                             }
                             if model.transport.connected {
@@ -845,12 +933,13 @@ private struct TunnelSetupView: View {
                 .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
                 .sheet(isPresented: $showScanner) {
                     NavigationStack {
-                        TunnelQRScanner { value in
+                        GalaxyQRScanner { value in
                             guard let url = TunnelTransport.endpoint(value) else {
                                 error = "That isn’t a Galaxy tunnel link. Scan the Galaxy link QR code on comma."; showScanner = false; return
                             }
+                            model.connectionLog.record("Tunnel login started from Galaxy QR")
                             address = url.absoluteString; error = ""; showScanner = false; loginURL = url
-                        } failed: { message in error = message; showScanner = false }
+                        } failed: { message in error = message + " Paste your Galaxy link instead."; showScanner = false }
                         .navigationTitle("Scan Galaxy link").navigationBarTitleDisplayMode(.inline)
                         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { showScanner = false } } }
                     }
@@ -918,7 +1007,7 @@ private struct TunnelLoginView: UIViewRepresentable {
     }
 }
 
-private struct TunnelQRScanner: UIViewControllerRepresentable {
+private struct GalaxyQRScanner: UIViewControllerRepresentable {
     let scanned: (String) -> Void
     let failed: (String) -> Void
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
@@ -931,13 +1020,13 @@ private struct TunnelQRScanner: UIViewControllerRepresentable {
     func updateUIViewController(_ scanner: DataScannerViewController, context: Context) {
         guard !scanner.isScanning, !context.coordinator.finished else { return }
         do { try scanner.startScanning() }
-        catch { context.coordinator.finish(error: "Couldn’t start the camera. Try again or paste your Galaxy link.") }
+        catch { context.coordinator.finish(error: "Couldn’t start the camera.") }
     }
     static func dismantleUIViewController(_ scanner: DataScannerViewController, coordinator: Coordinator) { scanner.stopScanning() }
     final class Coordinator: NSObject, DataScannerViewControllerDelegate {
-        let parent: TunnelQRScanner
+        let parent: GalaxyQRScanner
         var finished = false
-        init(parent: TunnelQRScanner) { self.parent = parent }
+        init(parent: GalaxyQRScanner) { self.parent = parent }
         func dataScanner(_ scanner: DataScannerViewController, didAdd addedItems: [RecognizedItem], allItems: [RecognizedItem]) {
             guard !finished else { return }
             for item in addedItems {
@@ -947,7 +1036,7 @@ private struct TunnelQRScanner: UIViewControllerRepresentable {
             }
         }
         func dataScanner(_ scanner: DataScannerViewController, becameUnavailableWithError error: DataScannerViewController.ScanningUnavailable) {
-            finish(error: "Camera unavailable. Try again or paste your Galaxy link.")
+            finish(error: "Camera unavailable.")
         }
         func finish(error: String) {
             guard !finished else { return }; finished = true

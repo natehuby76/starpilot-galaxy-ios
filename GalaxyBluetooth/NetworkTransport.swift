@@ -12,9 +12,11 @@ private func galaxyMediaHeaders(_ response: HTTPURLResponse) -> [String: String]
     return headers
 }
 
-private func galaxyReadTimeout(method: String, path: String) -> TimeInterval {
+private func galaxyRequestTimeout(method: String, path: String) -> TimeInterval {
+    // The parked snapshot worker allows up to 24 seconds for the cabin camera.
+    if method == "POST", path == "/api/sentry/notifications/photo-test" { return 35 }
     // Preparing the first recording range on comma can take up to 30 seconds.
-    method == "GET" && path.hasPrefix("/api/recordings/media/") ? 45 : 8
+    return method == "GET" && path.hasPrefix("/api/recordings/media/") ? 45 : 8
 }
 
 /// Each request has an isolated, bounded buffer.
@@ -115,6 +117,17 @@ final class LANTransport: ObservableObject, GalaxyRequestTransport {
             throw BridgeError.message("Enter your comma’s local IP address, such as 192.168.10.85.")
         }
         return url
+    }
+    // The comma's local Galaxy screen encodes http://<ip>:8082/#/.
+    static func localQRAddress(_ payload: String) -> String? {
+        guard let parts = URLComponents(string: payload.trimmingCharacters(in: .whitespacesAndNewlines)),
+              parts.scheme == "http", parts.port == 8082, let host = parts.host,
+              parts.user == nil, parts.password == nil, parts.query == nil,
+              parts.percentEncodedPath.isEmpty || parts.percentEncodedPath == "/",
+              parts.percentEncodedFragment == nil || parts.percentEncodedFragment == "/",
+              let endpoint = try? Self.endpoint(host)
+        else { return nil }
+        return endpoint.host
     }
     func configure(address: String) throws {
         let new = try Self.endpoint(address)
@@ -320,7 +333,7 @@ final class LANTransport: ObservableObject, GalaxyRequestTransport {
             request.httpMethod = method
             request.httpBody = body.isEmpty ? nil : body
             request.timeoutInterval = LocalRequest.isPackageUpload(method: method, target: path) ? LocalRequest.packageUploadTimeout
-                : (method == "POST" && path == LANPairing.windowPath ? 35 : method == "POST" && path == "/api/navigation/action" ? 25 : galaxyReadTimeout(method: method, path: path))
+                : (method == "POST" && path == LANPairing.windowPath ? 35 : method == "POST" && path == "/api/navigation/action" ? 25 : galaxyRequestTimeout(method: method, path: path))
             for (name, value) in headers where ["accept", "range", "content-type"].contains(name.lowercased()) {
                 request.setValue(value, forHTTPHeaderField: name)
             }
@@ -416,6 +429,8 @@ final class PreferredTransport: ObservableObject, GalaxyRequestTransport {
         switch route { case .lan: lan; case .tunnel: tunnel; case .bluetooth: bluetooth }
     }
     var selectedRoute: ConnectionRoute? { routes.first { transport($0)?.connected == true } }
+    /// Screen transfers can use a verified network route even when regular requests prefer Bluetooth.
+    var galaxyScreenRoute: ConnectionRoute? { routes.first { $0 != .bluetooth && transport($0)?.connected == true } }
     var connected: Bool { selectedRoute != nil }
     var usesLAN: Bool { selectedRoute == .lan }
     private var localDelay: TimeInterval = 0.2
@@ -711,7 +726,7 @@ final class TunnelTransport: ObservableObject, GalaxyRequestTransport {
         request.httpMethod = method; request.httpBody = body.isEmpty ? nil : body
         // comma may follow short links and geocode before answering a shared place.
         request.timeoutInterval = LocalRequest.isPackageUpload(method: method, target: path) ? LocalRequest.packageUploadTimeout
-            : method == "POST" && path == "/api/navigation/action" ? 25 : galaxyReadTimeout(method: method, path: path)
+            : method == "POST" && path == "/api/navigation/action" ? 25 : galaxyRequestTimeout(method: method, path: path)
         request.setValue("galaxy_session=" + credential.cookie, forHTTPHeaderField: "Cookie")
         for (name, value) in headers where ["accept", "range", "content-type"].contains(name.lowercased()) { request.setValue(value, forHTTPHeaderField: name) }
         if !["GET", "HEAD"].contains(method) {
