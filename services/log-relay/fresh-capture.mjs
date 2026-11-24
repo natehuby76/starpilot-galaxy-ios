@@ -12,7 +12,7 @@ export async function freshCapturePage({request, user, ticket, token, base, diag
   if (request.method === 'GET') {
     if (!user) return screen(signIn);
     if (user.id !== ticket.userID) return screen('Open this request with the Discord account that filed the report.',403);
-    return screen('<p>'+escape(ticket.title)+'</p><form id="launch"><label>Local Galaxy address from your comma<input id="address" required placeholder="192.168.1.17:8082"></label><button>Open Galaxy</button></form><p id="status" role="status"></p><script nonce="'+nonce+'">'+
+    return screen('<p>'+escape(ticket.title || 'New Galaxy support report')+'</p><form id="launch"><label>Local Galaxy address from your comma<input id="address" required placeholder="192.168.1.17:8082"></label><button>Open Galaxy</button></form><p id="status" role="status"></p><script nonce="'+nonce+'">'+
       `const field=document.getElementById('address');
       try {field.value=localStorage.getItem('galaxy-local-address')||'';} catch {}
       document.getElementById('launch').onsubmit=e=>{
@@ -34,7 +34,9 @@ export async function freshCapturePage({request, user, ticket, token, base, diag
   const archive=form.get('archive') || '';
   if (archive.length>131072 || !/^[A-Za-z0-9+/]+={0,2}$/.test(archive)) return screen('Invalid capture. Open Galaxy and try again.',400);
   if (form.get('confirm') !== 'yes') {
-    return screen('<p>Send this capture to the private support forum and add a receipt to the original Discord thread?</p><form method="post"><input type="hidden" name="confirm" value="yes"><input type="hidden" name="archive" value="'+archive+'"><button>Send to this report</button></form>');
+    const prompt=ticket.threadID ? 'Send fresh logs to your existing report?' : 'Send a new support report?';
+    const description=ticket.threadID ? '' : '<label>What happened?<textarea name="description" maxlength="1000" required></textarea></label>';
+    return screen('<h2>'+prompt+'</h2><p>Only support staff receive the capture.</p><form method="post">'+description+'<input type="hidden" name="confirm" value="yes"><input type="hidden" name="archive" value="'+archive+'"><button>Send to this report</button></form>');
   }
   if(request.headers.get('Origin')!==base || !user || user.id!==ticket.userID) return screen('Reopen the request in the browser where you signed in. '+signIn,403);
   let diagnostic;
@@ -43,11 +45,13 @@ export async function freshCapturePage({request, user, ticket, token, base, diag
     diagnostic=await diagnosticText(file);
     if(Boolean(diagnostic.controllerLog)!==(ticket.kind==='controller')) throw Error();
   } catch {return screen('Galaxy returned an unexpected capture. Open the request and capture again.',400);}
-  const response=await submit({user, platform:ticket.platform,threadID:ticket.threadID,reference:ticket.reference,description:'Fresh '+label+' logs requested by support.',...diagnostic});
+  const description=ticket.threadID ? 'Fresh '+label+' logs requested by support.' : (form.get('description')||'').trim().slice(0,1000);
+  if(!description) return screen('Describe what happened before sending.',400);
+  const response=await submit({user, platform:ticket.platform,threadID:ticket.threadID,reference:ticket.reference,description,...diagnostic});
   const result=await response.json();
   if(!response.ok||!result.sent)return screen(escape(result.error || 'Delivery could not be confirmed.'),response.ok?502:response.status);
   const receipt = /^https:\/\/discord\.com\/channels\/\d+\/(\d+)\/\d+$/.exec(result.threadURL || '');
-  if (!receipt || receipt[1] !== ticket.threadID) return screen('Check your support thread for the receipt.',502);
+  if (!receipt || (ticket.threadID && receipt[1] !== ticket.threadID)) return screen('Check your support thread for the receipt.',502);
   return screen('<p>Support received your logs.</p><a href="'+escape(result.threadURL)+'">Return to your report</a>');
 }
 

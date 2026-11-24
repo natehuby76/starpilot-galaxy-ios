@@ -1,4 +1,4 @@
-import {freshRequest} from './drive-logs.mjs';
+import {freshRequest,startGalaxyCapture} from './drive-logs.mjs';
 import {freshCapturePage} from './fresh-capture.mjs';
 const PAGE = '/report/galaxy';
 const OAUTH_COOKIE = '__Host-galaxy-discord-oauth';
@@ -126,7 +126,7 @@ export async function galaxyReportPage(request, env, {base, callback, discord, s
     target.search = new URLSearchParams({client_id:env.DISCORD_CLIENT_ID, redirect_uri:callback, response_type:'code', scope:'identify',
       state, code_challenge:challenge, code_challenge_method:'S256'}).toString();
     const returnPath = url.searchParams.get('return') || PAGE;
-    const next = /^\/report\/galaxy\/fresh\/[a-f0-9]{64}$/.test(returnPath) ? returnPath : PAGE;
+    const next = /^\/report\/galaxy\/(?:fresh\/[a-f0-9]{64}|new\/(?:connection|controller))$/.test(returnPath) ? returnPath : PAGE;
     const transaction = await seal(secret,OAUTH_COOKIE,{state,verifier,next,expires:Date.now()+600000});
     return redirect(target.href,[cookie(OAUTH_COOKIE,transaction,600)]);
   }
@@ -153,6 +153,18 @@ export async function galaxyReportPage(request, env, {base, callback, discord, s
     return redirect(transaction.next || PAGE,cookies);
   }
   const {user} = await openCookie(request,secret,SESSION_COOKIE) || {};
+  const start = /^\/report\/galaxy\/new\/(connection|controller)$/.exec(url.pathname);
+  if (start) {
+    if (request.method === 'GET') {
+      const id = nonce();
+      const action = user ? '<p>Signed in as '+escape(user.global_name || user.username)+'</p><form method="post"><button>Continue to capture</button></form>' :
+        '<a href="'+PAGE+'/sign-in?return='+encodeURIComponent(url.pathname)+'">Sign in with Discord</a>';
+      return new Response('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Galaxy support</title><style>body{font:1rem/1.55 system-ui;max-width:32rem;margin:8vh auto;padding:1rem}button{font:inherit;padding:.5rem}</style><main><h1>Send '+start[1]+' logs</h1><p>Your logs go to the private support forum.</p>'+action+'</main><script nonce="'+id+'">try {const u=new URL(decodeURIComponent(location.hash.slice(1)));if (["http:","https:"].includes(u.protocol)&&!u.username&&!u.password&&/^(10[.]|192[.]168[.]|172[.](1[6-9]|2[0-9]|3[01])[.])/.test(u.hostname)&&/^[0-9.]+$/.test(u.hostname))localStorage.setItem("galaxy-local-address",u.origin);} catch {} history.replaceState(null,"",location.pathname);</script>',{headers:{'Content-Type':'text/html;charset=utf-8','Cache-Control':'no-store','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-"+id+"'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"}});
+    }
+    if (!user) return page({error:'Sign in with Discord to continue.',status:401});
+    if (request.method !== 'POST' || request.headers.get('Origin') !== base) return page({error:'Open Galaxy support to continue.',status:403});
+    return startGalaxyCapture(env,base,user.id,start[1]);
+  }
   const fresh = /^\/report\/galaxy\/fresh\/([a-f0-9]{64})$/.exec(url.pathname);
   if (fresh) {
     const ticket = await freshRequest(env, fresh[1]);

@@ -26,14 +26,15 @@ test('Galaxy browser OAuth returns to a private report form and submits only the
   const runtime = {...env,REPORTS:{
     idFromName(id) { assert.ok(id==='555' || id.startsWith('drive-log:')); return id; },
     get() { return {async fetch(path, options) {
-      if(path==='https://reports/drive/fresh')return Response.json({kind:'controller',platform:'android',threadID:'2',reference,userID:owner,title:'Controller report'});
+      if(path==='https://reports/drive/issue'){newRequest=JSON.parse(options.body);return Response.json({created:true});}
+      if(path==='https://reports/drive/fresh')return Response.json(newRequest || {kind:'controller',platform:'android',threadID:'2',reference,userID:owner,title:'Controller report'});
       assert.equal(path,'https://reports/submit');
       sends.push(JSON.parse(options.body));
       return Response.json({sent:true,threadURL:'https://discord.com/channels/1/2/3'});
     }}; },
   }};
   const open = (path, options) => worker.fetch(new Request(base+path,options),runtime);
-  let challenge, owner='555';
+  let challenge, newRequest, owner='555';
   try {
     assert.match(await (await open(web)).text(), /Sign in with Discord/);
     const start = await open(web+'/sign-in');
@@ -92,6 +93,18 @@ test('Galaxy browser OAuth returns to a private report form and submits only the
     assert.match(await (await post(base)).text(),/Return to your report/);
     assert.equal(sends.length,3);
     assert.deepEqual([sends[2].threadID,sends[2].reference,sends[2].platform,sends[2].controllerLog],['2',reference,'android',true]);
+    const newPath=web+'/new/connection';
+    assert.match(await (await open(newPath)).text(),/Sign in with Discord/);
+    const created=await open(newPath,{method:'POST',headers:{Origin:base,Cookie:session}});
+    assert.equal(created.status,303);
+    const reportPath=created.headers.get('Location');
+    assert.match(reportPath,/^\/report\/galaxy\/fresh\/[a-f0-9]{64}$/);
+    const newBody=new URLSearchParams({confirm:'yes',description:'Wi-Fi drops', archive:Buffer.from(await (await diagnosticZip('local access diagnostics','connection-logs.txt')).arrayBuffer()).toString('base64')});
+    const delivered=await open(reportPath,{method:'POST',headers:{Origin:base,Cookie:session},body:newBody});
+    assert.equal(delivered.status,200);
+    assert.equal(sends[3].threadID,undefined);
+    assert.equal(sends[3].description,'Wi-Fi drops');
+    assert.equal(sends[3].logs,'local access diagnostics');
   } finally { globalThis.fetch = originalFetch; }
 });
 

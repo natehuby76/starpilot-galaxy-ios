@@ -36,6 +36,14 @@ export async function sendDriveInvite(env, threadID, token) {
   return object(env,token).fetch('https://reports/drive/invite',{method:'POST',body:JSON.stringify({threadID})});
 }
 
+export async function startGalaxyCapture(env, origin, userID, kind) {
+  const token = hex(crypto.getRandomValues(new Uint8Array(32)));
+  const record = {token,origin,userID,kind,platform:'ios',reference:crypto.randomUUID(),expires:Date.now()+day};
+  const stored = await object(env,token).fetch('https://reports/drive/issue',{method:'POST',body:JSON.stringify(record)});
+  if (!stored.ok) return stored;
+  return new Response(null,{status:303,headers:{Location:'/report/galaxy/fresh/'+token,'Cache-Control':'no-store'}});
+}
+
 export async function freshRequest(env, token) {
   if (!/^[a-f0-9]{64}$/.test(token)) return null;
   const response = await object(env, token).fetch('https://reports/drive/fresh');
