@@ -150,10 +150,13 @@ test('dashboard tag editing verifies ownership, platform, current tags and Disco
 test('opening a report and going back preserves the filtered list and its position', async () => {
   const elements = new Map();
   const listeners = {};
+  const driveRequests = [];
+  const driveURL = 'https://relay/drive/' + 'a'.repeat(64);
   const row = { reference: ref, title: 'Lost nav', reporter: 'Nathan', threadURL: 'https://discord.com/', created: 0 };
   const element = id => {
     if (!elements.has(id)) elements.set(id, {
       value: id === 'platform' ? 'ios' : '', children: [], hidden: false,
+      toggleAttribute(name, value) { this[name] = value; },
       append(child) { this.children.push(child); },
       replaceChildren() { this.children = []; },
       focus() { document.activeElement = this; }
@@ -173,12 +176,17 @@ test('opening a report and going back preserves the filtered list and its positi
     back() { this.state = null; listeners.popstate({ state: null }); }
   };
   const context = vm.createContext({
-    document, window, history, URLSearchParams, AbortSignal,
+    document, window, history, URL, URLSearchParams, AbortSignal,
     location: { pathname: '/dashboard/ios', hash: '', search: '' },
-    fetch: async path => ({ ok: true, json: async () => {
+    fetch: async (path, options) => ({ ok: true, json: async () => {
       if (path.endsWith('/state')) return { configured: true };
       if (path.endsWith('/login')) return { token: 'session' };
       if (path.endsWith('/reports')) return { reports: [row], cursor: null };
+      if (path.endsWith('/drive-link')) {
+        const body = JSON.parse(options.body);
+        driveRequests.push(body);
+        return body.send ? { sent: true } : { url: driveURL };
+      }
       return { source: { repo: 'test', branch: 'dev' }, commits: [] };
     } })
   });
@@ -196,6 +204,16 @@ test('opening a report and going back preserves the filtered list and its positi
   assert.equal(element('reportIndex').hidden, true);
   assert.equal(element('selectedLabel').textContent, 'Nathan · Lost nav');
   assert.equal(window.scrollY, 0);
+  const creating = element('driveLink').onclick();
+  assert.equal(element('driveStatus').textContent, 'Creating link…');
+  await creating;
+  assert.equal(element('driveURL').value, driveURL);
+  assert.match(element('driveStatus').textContent, /^Link created/);
+  const sending = element('postDrive').onclick();
+  assert.equal(element('driveStatus').textContent, 'Sending to Discord…');
+  await sending;
+  assert.match(element('driveStatus').textContent, /^Posted in Lost nav/);
+  assert.deepEqual(driveRequests.map(body => body.token), [undefined, 'a'.repeat(64)]);
   element('backReports').onclick();
   assert.equal(element('reportDetail').hidden, true);
   assert.equal(element('reportIndex').hidden, false);

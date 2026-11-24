@@ -4,9 +4,15 @@ import WebKit
 @main
 struct SupportDeskApp: App {
     var body: some Scene {
-        WindowGroup { DashboardScreen() }
+        WindowGroup {
+            DashboardScreen()
+                .background(Color(uiColor: dashboardBackground).ignoresSafeArea())
+                .preferredColorScheme(.dark)
+        }
     }
 }
+
+private let dashboardBackground = UIColor(red: 13.0 / 255, green: 16.0 / 255, blue: 24.0 / 255, alpha: 1)
 
 private let dashboard = URL(string: "https://starpilot-log-relay.nathan-g-hubbard.workers.dev/dashboard/ios")!
 
@@ -37,6 +43,9 @@ private struct DashboardView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> WKWebView {
         let view = WKWebView()
+        view.backgroundColor = dashboardBackground
+        view.underPageBackgroundColor = dashboardBackground
+        view.scrollView.backgroundColor = dashboardBackground
         view.navigationDelegate = context.coordinator
         view.allowsBackForwardNavigationGestures = true
         view.load(URLRequest(url: dashboard))
