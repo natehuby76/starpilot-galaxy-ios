@@ -147,3 +147,59 @@ test('dashboard tag editing verifies ownership, platform, current tags and Disco
   assert.equal((await worker.fetch(req('ios/dashboard/tags',body),env)).status,503);
  }finally{globalThis.fetch=old;}
 });
+test('opening a report and going back preserves the filtered list and its position', async () => {
+  const elements = new Map();
+  const listeners = {};
+  const row = { reference: ref, title: 'Lost nav', reporter: 'Nathan', threadURL: 'https://discord.com/', created: 0 };
+  const element = id => {
+    if (!elements.has(id)) elements.set(id, {
+      value: id === 'platform' ? 'ios' : '', children: [], hidden: false,
+      append(child) { this.children.push(child); },
+      replaceChildren() { this.children = []; },
+      focus() { document.activeElement = this; }
+    });
+    return elements.get(id);
+  };
+  const document = {
+    getElementById: element, querySelectorAll: () => [],
+    createElement: () => element(Symbol()), activeElement: null
+  };
+  const window = {
+    scrollY: 0, scrollTo(x, y) { this.scrollY = y; },
+    addEventListener(name, fn) { listeners[name] = fn; }
+  };
+  const history = {
+    replaceState() {}, pushState(state) { this.state = state; },
+    back() { this.state = null; listeners.popstate({ state: null }); }
+  };
+  const context = vm.createContext({
+    document, window, history, URLSearchParams, AbortSignal,
+    location: { pathname: '/dashboard/ios', hash: '', search: '' },
+    fetch: async path => ({ ok: true, json: async () => {
+      if (path.endsWith('/state')) return { configured: true };
+      if (path.endsWith('/login')) return { token: 'session' };
+      if (path.endsWith('/reports')) return { reports: [row], cursor: null };
+      return { source: { repo: 'test', branch: 'dev' }, commits: [] };
+    } })
+  });
+  vm.runInContext(dashboardHTML.match(/<script nonce="\{\{nonce\}\}">([\s\S]*?)<\/script>/)[1], context);
+  await new Promise(resolve => setImmediate(resolve));
+  element('login').onsubmit({ preventDefault() {} });
+  await new Promise(resolve => setImmediate(resolve));
+  element('search').value = 'lost';
+  element('search').oninput();
+  const button = element('reportList').children[0];
+  window.scrollY = 420;
+  button.focus();
+  button.onclick();
+  assert.equal(element('reportDetail').hidden, false);
+  assert.equal(element('reportIndex').hidden, true);
+  assert.equal(element('selectedLabel').textContent, 'Nathan · Lost nav');
+  assert.equal(window.scrollY, 0);
+  element('backReports').onclick();
+  assert.equal(element('reportDetail').hidden, true);
+  assert.equal(element('reportIndex').hidden, false);
+  assert.equal(element('search').value, 'lost');
+  assert.equal(window.scrollY, 420);
+  assert.equal(document.activeElement, button);
+});
