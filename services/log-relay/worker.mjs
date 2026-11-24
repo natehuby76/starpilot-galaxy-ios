@@ -1,3 +1,4 @@
+import { diagnosticZip } from './diagnostic-zip.mjs';
 import {claimReview, reviewStorage} from './codex-review.mjs';
 import {driveObject, drivePage, driveDownload, driveInteraction} from './drive-logs.mjs';
 import {filterReportThreads,getReportThread,supportTags} from './thread-tags.mjs';
@@ -318,6 +319,15 @@ export class Reports {
       if (!privateMetadata.ok) return json({error: 'Private report destination is unavailable'}, 503);
       const privateHook = await privateMetadata.json();
       if (!/^\d+$/.test(privateHook.guild_id || '') || !/^\d+$/.test(privateHook.channel_id || '') || privateHook.channel_id === hook.channel_id) return json({error: 'Private report destination is not configured'}, 503);
+      let attachment;
+      if (!previous?.privateURL) {
+        try {
+          attachment = platform === 'ios' ? await diagnosticZip(body.logs) :
+            new Blob([body.logs], {type: 'text/plain;charset=utf-8'});
+        } catch {
+          return json({error: 'Could not prepare the diagnostics archive. Retry this report.'}, 503);
+        }
+      }
       const uncertain = {fingerprint, privateURL: previous?.privateURL, title: previous?.title, status: 409, result: {error: 'Delivery is unconfirmed. Diagnostics may have arrived privately. Check with the maintainer before sending a new report.', reference: body.reference}, at: now};
       const reservation = await this.ctx.storage.transaction(async storage => {
         const existing = await storage.get(key);
@@ -356,7 +366,7 @@ export class Reports {
       if (privateForum) privatePayload.thread_name = title;
       const form = new FormData();
       form.append('payload_json', JSON.stringify(privatePayload));
-      form.append('files[0]', new Blob([body.logs], {type: 'text/plain;charset=utf-8'}), `StarPilot-${body.reference}.txt`);
+      if (attachment) form.append('files[0]', attachment, `StarPilot-${body.reference}.${platform === 'ios' ? 'zip' : 'txt'}`);
       webhook.searchParams.set('wait', 'true');
       try {
         if (!uncertain.privateURL) {

@@ -1,3 +1,4 @@
+import { inflateRawSync } from 'node:zlib';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker, {Reports, reportTitle, readJSON, buildNotifications, reportTags} from './worker.mjs';
@@ -113,11 +114,24 @@ test('Android release endpoint sends once, status is read-only, and iOS referenc
   assert.equal((await (await send('/v1/android/build-notice')).json()).state,'sent');assert.equal(posts,1);
  }finally{globalThis.fetch=old;}
 });
+
+async function assertDiagnosticArchive(form) {
+  const archive = form.get('files[0]');
+  assert.equal(archive.type, 'application/zip');
+  assert.equal(archive.name, 'StarPilot-' + body.reference + '.zip');
+  const bytes = Buffer.from(await archive.arrayBuffer());
+  assert.equal(bytes.readUInt32LE(0), 0x04034b50);
+  const start = 30 + bytes.readUInt16LE(26);
+  assert.equal(bytes.subarray(30, start).toString(), 'diagnostics.txt');
+  const payloadBytes = bytes.subarray(start, start + bytes.readUInt32LE(18));
+  const report = bytes.readUInt16LE(8) === 8 ? inflateRawSync(payloadBytes) : payloadBytes;
+  assert.equal(report.toString(), body.logs);
+}
 test('confirmed report retry returns same thread without another post',async()=>{
  const old=globalThis.fetch;let posts=0;
  globalThis.fetch=async(url,options)=>{
   assert.equal(options.redirect,'manual');
-  if(options.method==='POST') {posts++;if(String(url).includes('/456/')) {assert.equal(await options.body.get('files[0]').text(),body.logs);return Response.json({id:'555',channel_id:'666'});} assert.equal(typeof options.body,'string'); assert.ok(!options.body.includes(body.logs)); const payload=JSON.parse(options.body); assert.ok(payload.content.includes('https://discord.com/channels/333/666/555'));assert.deepEqual(payload.allowed_mentions,{parse:[],users:['789','524762496373096459']});assert.ok(payload.content.includes('<@524762496373096459>'));return Response.json({id:'111',channel_id:'222'});}
+  if(options.method==='POST') {posts++;if(String(url).includes('/456/')) {await assertDiagnosticArchive(options.body);return Response.json({id:'555',channel_id:'666'});} assert.equal(typeof options.body,'string'); assert.ok(!options.body.includes(body.logs)); const payload=JSON.parse(options.body); assert.ok(payload.content.includes('https://discord.com/channels/333/666/555'));assert.deepEqual(payload.allowed_mentions,{parse:[],users:['789','524762496373096459']});assert.ok(payload.content.includes('<@524762496373096459>'));return Response.json({id:'111',channel_id:'222'});}
   return Response.json({guild_id:'333',channel_id:String(url).includes('/456/')?'666':'777'});
  };
  const reports=new Reports({storage:storage(),blockConcurrencyWhile:f=>f()},env);
@@ -253,7 +267,7 @@ test('private forum creates a thread and resumes rejected public delivery withou
    const payload=JSON.parse(options.body.get('payload_json'));
    assert.ok(payload.thread_name.startsWith('iOS — '));
    assert.deepEqual(payload.allowed_mentions,{parse:[]});
-   assert.equal(await options.body.get('files[0]').text(),body.logs);
+   await assertDiagnosticArchive(options.body);
    return Response.json({id:'555',channel_id:'888'});
   }
   const payload=JSON.parse(options.body);
