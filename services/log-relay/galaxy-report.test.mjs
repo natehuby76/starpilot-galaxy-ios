@@ -60,7 +60,8 @@ test('Galaxy browser OAuth returns to a private report form and submits only the
     const html = await (await open(web+'/manual',{headers:{Cookie:session}})).text();
     assert.match(html, /&lt;Sample&gt;/);
     assert.match(html, /Diagnostic ZIP/);
-    assert.ok(html.indexOf('Capture logs in Galaxy') < html.indexOf('type="file"'));
+    assert.match(html, /<details class="manual"><summary>Manual ZIP upload<\/summary>[\s\S]*type="file"/);
+    assert.ok(html.indexOf('Capture logs in Galaxy') < html.indexOf('<details'));
     const form = new FormData();
     form.append('description','Local Wi-Fi dropped');
     form.append('reference',reference);
@@ -85,7 +86,9 @@ test('Galaxy browser OAuth returns to a private report form and submits only the
     const archive=Buffer.from(await (await diagnosticZip(controllerLog,'bluetooth-log.json')).arrayBuffer()).toString('base64');
     const capture=new URLSearchParams({archive});
     const post=origin=>open(ticket,{method:'POST',body:capture,headers:{Origin:origin,Cookie:session}});
-    assert.match(await (await post('http://192.168.1.2:8082')).text(),/Send to this report/);
+    const confirmation = await post('http://192.168.1.2:8082');
+    assert.equal(confirmation.headers.get('Referrer-Policy'),'same-origin');
+    assert.match(await confirmation.text(),/Send to this report/);
     assert.equal(sends.length,2);
     capture.set('confirm','yes');
     assert.equal((await post('http://192.168.1.2:8082')).status,403);
@@ -100,6 +103,12 @@ test('Galaxy browser OAuth returns to a private report form and submits only the
     assert.deepEqual([sends[2].threadID,sends[2].reference,sends[2].platform,sends[2].controllerLog],['2',reference,'android',true]);
     const newPath=web+'/new/connection';
     assert.match(await (await open(newPath)).text(),/Sign in with Discord/);
+    const captureStart = await open(newPath,{headers:{Cookie:session}});
+    assert.equal(captureStart.headers.get('Referrer-Policy'),'same-origin');
+    const wrongOrigin = await open(newPath,{method:'POST',headers:{Origin:'null',Cookie:session}});
+    assert.equal(wrongOrigin.status,303);
+    assert.equal(wrongOrigin.headers.get('Location'),newPath);
+    assert.equal(newRequest,undefined);
     const created=await open(newPath,{method:'POST',headers:{Origin:base,Cookie:session}});
     assert.equal(created.status,303);
     const reportPath=created.headers.get('Location');

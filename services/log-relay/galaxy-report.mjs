@@ -65,14 +65,15 @@ function page({user, error = '', reference = crypto.randomUUID(), description = 
       + '<form method="post" action="'+PAGE+'/sign-out"><button class="secondary">Sign out</button></form>';
   }
   const capture = thread ? '' : '<a class="button" href="'+PAGE+'/new/connection">Capture logs in Galaxy</a>'
-    + ' <a href="'+PAGE+'/new/controller">Capture controller logs</a><h2>Upload a ZIP manually</h2>';
+    + ' <a class="button secondary" href="'+PAGE+'/new/controller">Capture controller logs</a>';
+  if (!thread) content = '<details class="manual"><summary>Manual ZIP upload</summary>'+content+'</details>';
   return new Response('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
     + '<title>Report a Galaxy issue</title><style>'
     + ':root{color-scheme:light dark;font:16px system-ui}body{margin:0;background:#141120;color:#f5efff}main{max-width:38rem;margin:auto;padding:2rem 1.2rem 3rem}'
     + 'h1{line-height:1.15}p{line-height:1.55;color:#d4c8e5}form{display:grid;gap:.65rem;margin:1.2rem 0}label{font-weight:650}'
     + 'textarea,input{font:inherit;color:inherit}textarea{box-sizing:border-box;width:100%;padding:.75rem;border:1px solid #64557a;border-radius:.6rem;background:#201a2d}input{max-width:100%}'
     + 'button,.button{justify-self:start;display:inline-block;font:inherit;font-weight:650;padding:.7rem 1rem;border:none;border-radius:.6rem;background:#c7a5ff;color:#1b102a;text-decoration:none;cursor:pointer}'
-    + '.secondary{background:#352847;color:#f5efff}.error{color:#ffb8c9}</style>'
+    + '.secondary{background:#352847;color:#f5efff}.error{color:#ffb8c9}.manual{margin-top:1.25rem;font-size:.875rem;color:#d4c8e5}.manual summary{cursor:pointer}</style>'
     + '<main><h1>Galaxy support</h1>'+message+capture+content+'</main></html>', {status, headers});
 }
 
@@ -162,10 +163,10 @@ export async function galaxyReportPage(request, env, {base, callback, discord, s
       const id = nonce();
       const action = user ? '<p>Signed in as '+escape(user.global_name || user.username)+'</p><form method="post"><button>Continue to capture</button></form>' :
         '<a href="'+PAGE+'/sign-in?return='+encodeURIComponent(url.pathname)+'">Sign in with Discord</a>';
-      return new Response('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Galaxy support</title><style>body{font:1rem/1.55 system-ui;max-width:32rem;margin:8vh auto;padding:1rem}button{font:inherit;padding:.5rem}</style><main><h1>Send '+start[1]+' logs</h1><p>Your logs go to the private support forum.</p>'+action+'</main><script nonce="'+id+'">try {const u=new URL(decodeURIComponent(location.hash.slice(1)));if (["http:","https:"].includes(u.protocol)&&!u.username&&!u.password&&/^(10[.]|192[.]168[.]|172[.](1[6-9]|2[0-9]|3[01])[.])/.test(u.hostname)&&/^[0-9.]+$/.test(u.hostname))localStorage.setItem("galaxy-local-address",u.origin);} catch {} history.replaceState(null,"",location.pathname);</script>',{headers:{'Content-Type':'text/html;charset=utf-8','Cache-Control':'no-store','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-"+id+"'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"}});
+      return new Response('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Galaxy support</title><style>body{font:1rem/1.55 system-ui;max-width:32rem;margin:8vh auto;padding:1rem}button{font:inherit;padding:.5rem}</style><main><h1>Send '+start[1]+' logs</h1><p>Your logs go to the private support forum.</p>'+action+'</main><script nonce="'+id+'">try {const u=new URL(decodeURIComponent(location.hash.slice(1)));if (["http:","https:"].includes(u.protocol)&&!u.username&&!u.password&&/^(10[.]|192[.]168[.]|172[.](1[6-9]|2[0-9]|3[01])[.])/.test(u.hostname)&&/^[0-9.]+$/.test(u.hostname))localStorage.setItem("galaxy-local-address",u.origin);} catch {} history.replaceState(null,"",location.pathname);</script>',{headers:{'Content-Type':'text/html;charset=utf-8','Cache-Control':'no-store','Referrer-Policy':'same-origin','Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-"+id+"'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"}});
     }
     if (!user) return page({error:'Sign in with Discord to continue.',status:401});
-    if (request.method !== 'POST' || request.headers.get('Origin') !== base) return page({error:'Open Galaxy support to continue.',status:403});
+    if (request.method !== 'POST' || request.headers.get('Origin') !== base) return redirect(url.pathname);
     return startGalaxyCapture(env,base,user.id,start[1]);
   }
   const fresh = /^\/report\/galaxy\/fresh\/([a-f0-9]{64})$/.exec(url.pathname);

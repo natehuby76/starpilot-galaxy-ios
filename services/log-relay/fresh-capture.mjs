@@ -5,7 +5,7 @@ export async function freshCapturePage({request, user, ticket, token, base, diag
   const nonce = crypto.randomUUID().replaceAll('-', '');
   function screen(content, status = 200) {
     return new Response('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Send fresh logs</title><style>body{font:1rem/1.55 system-ui;max-width:32rem;margin:8vh auto;padding:1rem}input,button{font:inherit;padding:.5rem}label{display:block}</style><main><h1>Send fresh '+label+' logs</h1>'+content+'</main></html>', {
-      status, headers:{'Content-Type':'text/html;charset=utf-8','Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; script-src 'nonce-"+nonce+"'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"}
+      status, headers:{'Content-Type':'text/html;charset=utf-8','Cache-Control':'no-store','Referrer-Policy':'same-origin','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; script-src 'nonce-"+nonce+"'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"}
     });
   }
   const signIn = '<a href="/report/galaxy/sign-in?return='+encodeURIComponent(path)+'">Sign in with Discord</a>';
