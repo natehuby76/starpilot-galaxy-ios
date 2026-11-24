@@ -3,17 +3,18 @@ import assert from 'node:assert/strict';
 import {caseButtons,caseInteraction,caseAction} from './case-actions.mjs';
 import {supportForum} from './thread-tags.mjs';
 
-const env={REPORT_MAINTAINER_ID:'2',ANDROID_REPORT_MAINTAINER_ID:'3',DISCORD_BOT_TOKEN:'test'};
-const interaction=(command,actor)=>({type:3,member:{user:{id:actor}},channel_id:'4',data:{custom_id:'case:1:ios:'+command}});
+const env={REPORTS:{idFromName:v=>v,get:()=>({fetch:()=>Response.json({id:'6'})})},REPORT_MAINTAINER_ID:'2',ANDROID_REPORT_MAINTAINER_ID:'3',DISCORD_BOT_TOKEN:'test'};
+const interaction=(command,actor)=>({type:3,guild_id:'1387432184121393333',member:{user:{id:actor},roles:actor==='3'?['6']:[]},channel_id:'4',data:{custom_id:'case:1:ios:'+command}});
 
 test('reporter can add details and staff get a private action menu',async()=>{
   assert.equal(caseButtons('1','ios')[0].components.length,2);
-  assert.equal((await caseInteraction(interaction('note','1'),env).json()).type,9);
-  assert.equal((await caseInteraction(interaction('menu','1'),env).json()).data.components,undefined);
-  const menu=await caseInteraction(interaction('menu','3'),env).json();
+  assert.equal((await (await caseInteraction(interaction('note','1'),env)).json()).type,9);
+  assert.equal((await (await caseInteraction(interaction('menu','1'),env)).json()).data.components,undefined);
+  assert.equal((await (await caseInteraction(interaction('menu','2'),env)).json()).data.components,undefined);
+  const menu=await (await caseInteraction(interaction('menu','3'),env)).json();
   assert.equal(menu.data.flags,64);
   assert.equal(menu.data.components[0].components[0].options.length,8);
-  assert.match((await caseInteraction(interaction('priority:5','2'),env).json()).data.content,/original/);
+  assert.match((await (await caseInteraction(interaction('priority:5','2'),env)).json()).data.content,/original/);
 });
 test('priority is stored on the verified ticket and a repeated interaction posts once',async()=>{
   const data=new Map([['thread:4',{platform:'ios',title:'Original'}]]);

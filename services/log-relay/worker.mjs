@@ -1,3 +1,4 @@
+import {discordTags} from './thread-tags.mjs';
 import {botPost} from './bot-delivery.mjs';
 import { browserDiscordCallback, galaxyReportPage } from './galaxy-report.mjs';
 import { diagnosticZip } from './diagnostic-zip.mjs';
@@ -253,6 +254,17 @@ export class Reports {
   async fetch(request) {
     {
       const path = new URL(request.url).pathname;
+      if(path==='/sage-role'){
+        let id=await this.ctx.storage.get('sage-role');
+        if(!id){
+          const roles=await discordTags(this.env,'/guilds/1387432184121393333/roles');
+          const matches=roles.filter(r=>/^starpilot sages?$/i.test(r.name.trim()));
+          if(matches.length!==1)return json({error:'Expected one StarPilot Sage role.'},409);
+          id=matches[0].id;
+          await this.ctx.storage.put('sage-role',id);
+        }
+        return json({id});
+      }
       if(path==='/enable-controls'){
         if(!await this.ctx.storage.get('enabled')){
           await enableCaseControls(this.env);

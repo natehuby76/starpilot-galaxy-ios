@@ -16,15 +16,21 @@ export function caseButtons(user, platform) {
   return [{type:1,components:[button('note',titles.note,2),button('menu','Staff Actions',1)]}];
 }
 
-export function caseInteraction(i,env,origin,ctx) {
+export async function caseInteraction(i,env,origin,ctx) {
   const [prefix,user,platform,command,bound] = (i.data?.custom_id||'').split(':');
   const channel=i.channel_id, actor=i.member?.user?.id;
   if(prefix!=='case'||!idPattern.test(user)||!idPattern.test(channel)||!idPattern.test(actor)||!['ios','android'].includes(platform)||
      (bound && bound!==channel)) return ephemeral('Open the original support thread.');
-  const staff=[env.REPORT_MAINTAINER_ID,env.ANDROID_REPORT_MAINTAINER_ID];
+  const roles=i.guild_id==='1387432184121393333' && Array.isArray(i.member?.roles)?i.member.roles:[];
+  let sage=false;
+  if(roles.length){
+    const settings=env.REPORTS.get(env.REPORTS.idFromName('companion-bot-setup'));
+    const response=await settings.fetch('https://reports/sage-role');
+    if(response.ok)sage=roles.includes((await response.json()).id);
+  }
   const base=['case',user,platform].join(':')+':';
   const action=command==='pick'?i.data.values?.[0]:command;
-  if(action==='note' ? actor!==user&&!staff.includes(actor) : !staff.includes(actor)) return ephemeral('This action is restricted to the report owner or support staff.');
+  if(action==='note' ? actor!==user&&!sage : !sage) return ephemeral(action==='note'?'Only the reporter or StarPilot Sage can add details.':'Staff Actions requires the StarPilot Sage role.');
   if(i.type===3 && command==='menu'){
     const options=Object.entries(titles).filter(([k])=>k!=='note').map(([value,label])=>({label,value}));
     return Response.json({type:4,data:{flags:64,components:[row({type:3,custom_id:base+'pick:'+channel,placeholder:'Choose a staff action',options})]}});

@@ -25,6 +25,10 @@ export async function dashboardAPI(request,env,platform,readJSON,json){
    if(path.endsWith('/drive-link'))return await issueDriveLink(env,id,new URL(request.url).origin,record,['connection','controller'].includes(body.kind) ? body.kind : 'drive');
    let thread=await getReportThread(env,id);
    if(path.endsWith('/case-controls')){
+    const settings=env.REPORTS.get(env.REPORTS.idFromName('companion-bot-setup'));
+    const role=await settings.fetch('https://reports/sage-role');
+    if(!role.ok)return role;
+    if(body.checkOnly)return role;
     await enableCaseControls(env);
     const posted=await botPost(env,id,{content:'Report controls',components:caseButtons(body.userID,platform),allowed_mentions:{parse:[]}});
     return json(posted.ok?{sent:true}:{error:'Discord declined the report controls.'},posted.ok?200:503);
