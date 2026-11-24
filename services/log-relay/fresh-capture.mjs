@@ -36,7 +36,7 @@ export async function freshCapturePage({request, user, ticket, token, base, diag
           document.getElementById('missing-address').hidden=true;
           field.value=destination.origin;
         }
-      } catch {}
+      } catch {try {localStorage.removeItem('galaxy-local-address');} catch {}}
       const openGalaxy=url=>{
         url.pathname='/';url.search='';url.hash='/logs/help/fresh/${ticket.kind}/${token}';location.assign(url.href);
       };
