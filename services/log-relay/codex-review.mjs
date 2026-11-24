@@ -1,3 +1,4 @@
+import {botMessage} from './bot-delivery.mjs';
 const reviewReply=(data,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'no-store'}});
 const reviewUUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 
@@ -8,7 +9,7 @@ function reviewCall(env,name,action,data){
   return reviewObject(env,name).fetch('https://reports/review/'+action,{method:'POST',body:JSON.stringify(data)});
 }
 export async function rememberDriveMessage(env,record,message){
-  return reviewCall(env,'thread:'+record.threadID,'remember',{channel:message.channel_id,id:message.id,reference:record.reference});
+  return reviewCall(env,'thread:'+record.threadID,'remember',{channel:message.channel_id,id:message.id,reference:record.reference,...(message.bot && {bot:true})});
 }
 export async function reviewStorage(storage,action,body){
   if(['enqueue','lease','finish','status'].includes(action))return reviewQueue(storage,action,body);
@@ -52,12 +53,15 @@ export async function webhookMessage(raw,channel,id){
 export async function prepareReview(env,report,chat){
   if(chat!==''&&!reviewUUID.test(chat))return reviewReply({error:'Enter a Codex chat ID.'},400);
   const ids=new URL(report.threadURL).pathname.split('/');
-  const publicMessage=await webhookMessage(env.DISCORD_WEBHOOK_URL,ids[3],ids[4]);
+  const publicMessage=report.botPublic ? await botMessage(env,ids[3],ids[4]) : await webhookMessage(env.DISCORD_WEBHOOK_URL,ids[3],ids[4]);
   const messages=[];
   const original=/\nPrivate diagnostics: https:\/\/discord\.com\/channels\/\d+\/(\d+)\/(\d+)\s*$/.exec(publicMessage.content);
-  if(original)messages.push(await webhookMessage(env.DISCORD_PRIVATE_WEBHOOK_URL,original[1],original[2]));
+  if(report.botPrivateURL){
+    const location = new URL(report.botPrivateURL).pathname.split("/");
+    messages.push(await botMessage(env,location[3],location[4]));
+  } else if(original)messages.push(await webhookMessage(env.DISCORD_PRIVATE_WEBHOOK_URL,original[1],original[2]));
   const drives=await (await reviewCall(env,'thread:'+ids[3],'list',{})).json();
-  for(const drive of drives)messages.push(await webhookMessage(env.DISCORD_PRIVATE_WEBHOOK_URL,drive.channel,drive.id));
+  for(const drive of drives)messages.push(drive.bot ? await botMessage(env,drive.channel,drive.id) : await webhookMessage(env.DISCORD_PRIVATE_WEBHOOK_URL,drive.channel,drive.id));
   const token=Array.from(crypto.getRandomValues(new Uint8Array(32)),x=>x.toString(16).padStart(2,'0')).join('');
   // Only references and Discord's short-lived attachment URLs enter the ticket.
   const entries=messages.map(m=>({message:m.content,attachments:(m.attachments||[]).map(a=>({name:a.filename,url:a.url,size:a.size}))}));

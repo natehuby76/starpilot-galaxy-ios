@@ -1,3 +1,4 @@
+import {botPost} from './bot-delivery.mjs';
 import {rememberDriveMessage,webhookMessage} from './codex-review.mjs';
 import { getReportThread, supportTags, supportForum } from './thread-tags.mjs';
 
@@ -256,12 +257,12 @@ export async function driveObject(request,storage,env) {
       form.set('files[0]',new Blob([['Reference: '+state.reference,'Support thread: '+state.threadID,'Route: '+input.route,'Time into drive: '+input.time,'Notes: '+input.note].join('\n')]),'drive-details.txt');
       if(input.file?.size && !state.fileKey)form.set('files[1]',input.file,input.file.name);
       posting=true;
-      const privatePost=await postWebhook(env.DISCORD_PRIVATE_WEBHOOK_URL,null,form);
+      const privatePost=env.DISCORD_BOT_TOKEN ? await botPost(env,priv.channel_id,form) : await postWebhook(env.DISCORD_PRIVATE_WEBHOOK_URL,null,form);
       if(!privatePost.ok)return rejectDelivery(privatePost,state,storage);
       const msg=await privatePost.json();
       if(!/^\d+$/.test(msg.id)||!/^\d+$/.test(msg.channel_id)||msg.channel_id===state.threadID)throw Error('Unconfirmed private post');
       state.privateSent=true;
-      state.privateMessage={id:msg.id,channel_id:msg.channel_id};
+      state.privateMessage={id:msg.id,channel_id:msg.channel_id,...(env.DISCORD_BOT_TOKEN && {bot:true})};
       await storage.put('drive',state);
     }
     if(state.privateMessage){
@@ -269,7 +270,8 @@ export async function driveObject(request,storage,env) {
       if(!indexed.ok)throw Error('Private message indexing failed');
     }
     posting=true;
-    const receipt=await postWebhook(env.DISCORD_WEBHOOK_URL,state.threadID,{content:'Drive logs received. Reference: '+state.reference,allowed_mentions:{parse:[]}});
+    const payload={content:'Drive logs received. Reference: '+state.reference,allowed_mentions:{parse:[]}};
+    const receipt=env.DISCORD_BOT_TOKEN ? await botPost(env,state.threadID,payload) : await postWebhook(env.DISCORD_WEBHOOK_URL,state.threadID,payload);
     if(!receipt.ok)return rejectDelivery(receipt,state,storage);
     const msg=await receipt.json();
     if(msg.channel_id!==state.threadID||!/^\d+$/.test(msg.id))throw Error('Unconfirmed receipt');

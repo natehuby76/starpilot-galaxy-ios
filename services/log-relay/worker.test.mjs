@@ -438,3 +438,35 @@ test('description topics add tags without changing status or exceeding five tags
  assert.deepEqual(reportTags({...e,GALAXY_FORUM_TAG_ID:'2'},'ios','Galaxy'),['1','2']);
  assert.deepEqual(reportTags({...e,CARPLAY_FORUM_TAG_ID:'invalid'},'ios','CarPlay'),['1','2']);
 });
+
+test('bot owns both forum posts, preserves the private reference and resumes after public rejection', async t=>{
+  const store=storage();
+  const botEnv={...env,DISCORD_BOT_TOKEN:'bot-test',DISCORD_PRIVATE_FORUM:'true'};
+  const service=new Reports({storage:store},botEnv);
+  const posts=[];
+  t.mock.method(globalThis,'fetch',async(url,options)=>{
+    const path=new URL(url).pathname;
+    if(options.method!=='POST')return Response.json({guild_id:'333',channel_id:path.includes('/456/')?'666':'777'});
+    assert.equal(options.headers.Authorization,'Bot bot-test');
+    if(path==='/api/v10/channels/666/threads'){
+      posts.push('private');
+      assert.ok(options.body.get('files[0]').size>0);
+      const fields=JSON.parse(options.body.get('payload_json'));
+      assert.ok(fields.name);assert.ok(fields.message.content.includes(body.reference));
+      return Response.json({id:'888',parent_id:'666',message:{id:'888',channel_id:'888'}});
+    }
+    assert.equal(path,'/api/v10/channels/777/threads');
+    posts.push('public');
+    const fields=JSON.parse(options.body);
+    assert.ok(fields.message.content.includes('/333/888/888'));assert.ok(fields.name);
+    assert.ok(!fields.message.content.includes(body.logs));
+    if(posts.length===2)return new Response('',{status:429});
+    return Response.json({id:'222',parent_id:'777',message:{id:'222',channel_id:'222'}});
+  });
+  assert.equal((await service.fetch(request('/submit',body))).status,503);
+  assert.equal((await service.fetch(request('/submit',body))).status,200);
+  assert.deepEqual(posts,['private','public','public']);
+  const record=await (await service.fetch(request('/dashboard-record',{userID:body.user.id,reference:body.reference,platform:'ios'}))).json();
+  assert.equal(record.botPublic,true);
+  assert.equal(record.botPrivateURL,'https://discord.com/channels/333/888/888');
+});

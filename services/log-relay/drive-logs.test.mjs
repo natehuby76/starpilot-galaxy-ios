@@ -16,7 +16,17 @@ function fixture(t){
     if(target.pathname==='/api/webhooks/123/public/messages/777')return Response.json({id:'777',channel_id:'777'});
     if(target.pathname==='/api/v10/channels/777/messages'){
       assert.equal(init.headers.Authorization,'Bot test');
-      posts.push({invite:JSON.parse(init.body)});return Response.json({id:'456',channel_id:'777'});
+      const message=JSON.parse(init.body);
+      if(rejectReceipt && !message.components){rejectReceipt=false;return new Response('',{status:429});}
+      posts.push(message.components?{invite:message}:{priv:false,body:init.body});
+      return Response.json({id:'456',channel_id:'777'});
+    }
+    if(target.pathname==='/api/v10/channels/888/threads'){
+      assert.equal(init.headers.Authorization,'Bot test');
+      const {name,message}=JSON.parse(init.body.get('payload_json'));
+      assert.match(name,/Drive logs/);assert.match(message.content,/Reference/);
+      posts.push({priv:true,body:init.body});
+      return Response.json({id:'222',parent_id:'888',message:{id:'111',channel_id:'222'}});
     }
     const priv=target.pathname.endsWith('/private');
     if(init.method!=='POST')return Response.json({guild_id:'1',channel_id:priv?'888':supportForum});

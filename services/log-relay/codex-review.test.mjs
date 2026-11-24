@@ -48,3 +48,17 @@ test('handoff uses the specified chat and can be claimed only once',async t=>{
   await assert.rejects(prepareReview(env,record,''),/unexpected redirect/);
   assert.equal(request.mock.callCount(),calls+1);
 });
+
+test('bot review reads the recorded private message, including on an older webhook thread',async t=>{
+  const reads=[];
+  const env={DISCORD_BOT_TOKEN:'test',REPORTS:{idFromName:n=>n,get:()=>({fetch:async url=>url.endsWith('/list')?Response.json([]):Response.json({ready:true})})}};
+  t.mock.method(globalThis,'fetch',async(url,opts)=>{
+    assert.equal(opts.headers.Authorization,'Bot test');
+    reads.push(url);
+    const [,channel,id]=url.match(/channels[/]([0-9]+)[/]messages[/]([0-9]+)$/);
+    return Response.json({id,channel_id:channel,content:'Report',attachments:[]});
+  });
+  const result=await prepareReview(env,{...record,botPublic:true,botPrivateURL:'https://discord.com/channels/1/4/5'},'');
+  assert.equal(result.status,200);
+  assert.deepEqual(reads,['https://discord.com/api/v10/channels/2/messages/3','https://discord.com/api/v10/channels/4/messages/5']);
+});

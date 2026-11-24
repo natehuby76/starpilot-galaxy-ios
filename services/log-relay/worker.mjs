@@ -1,3 +1,4 @@
+import {botPost} from './bot-delivery.mjs';
 import { browserDiscordCallback, galaxyReportPage } from './galaxy-report.mjs';
 import { diagnosticZip } from './diagnostic-zip.mjs';
 import {claimReview, reviewStorage} from './codex-review.mjs';
@@ -280,7 +281,7 @@ export class Reports {
         const match=/^https:\/\/discord\.com\/channels\/(\d+)\/(\d+)\/\d+$/.exec(mapping?.threadURL||'');
         const thread=match && await this.ctx.storage.get('thread:'+match[2]);
         if(!thread || platformOf(thread.platform)!==platform) return json({error:'Report not found for this platform'},404);
-        return json({platform,userID:body.userID,reference:ref,title:thread.title,reporter:thread.reporter||'Discord user '+body.userID,created:thread.created,threadURL:mapping.threadURL});
+        return json({platform,userID:body.userID,reference:ref,title:thread.title,reporter:thread.reporter||'Discord user '+body.userID,created:thread.created,threadURL:mapping.threadURL, ...(mapping.botPublic && {botPublic:true}), ...(mapping.botPrivateURL && {botPrivateURL:mapping.botPrivateURL})});
       }
       if(path === '/dashboard-history') {
         const prefix=platform==='android'?'reference:android:':'reference:';
@@ -326,6 +327,8 @@ export class Reports {
       if (!privateMetadata.ok) return json({error: 'Private report destination is unavailable'}, 503);
       const privateHook = await privateMetadata.json();
       if (!/^\d+$/.test(privateHook.guild_id || '') || !/^\d+$/.test(privateHook.channel_id || '') || privateHook.channel_id === hook.channel_id) return json({error: 'Private report destination is not configured'}, 503);
+      if (this.env.DISCORD_BOT_TOKEN && (!/^\d{1,20}$/.test(hook.channel_id) || hook.guild_id!==privateHook.guild_id))
+        return json({error:'Verify the public and private support destinations.'},503);
       let attachment;
       if (!previous?.privateURL) {
         try {
@@ -335,7 +338,7 @@ export class Reports {
           return json({error: 'Could not prepare the diagnostics archive. Retry this report.'}, 503);
         }
       }
-      const uncertain = {fingerprint, privateURL: previous?.privateURL, title: previous?.title, status: 409, result: {error: 'Delivery is unconfirmed. Diagnostics may have arrived privately. Check with the maintainer before sending a new report.', reference: body.reference}, at: now};
+      const uncertain = {fingerprint, privateURL: previous?.privateURL, botPrivate:previous?.botPrivate, title: previous?.title, status: 409, result: {error: 'Delivery is unconfirmed. Diagnostics may have arrived privately. Check with the maintainer before sending a new report.', reference: body.reference}, at: now};
       const reservation = await this.ctx.storage.transaction(async storage => {
         const existing = await storage.get(key);
         if (existing && !existing.retryable) return existing;
@@ -378,16 +381,17 @@ export class Reports {
       try {
         if (!uncertain.privateURL) {
           privateWebhook.searchParams.set('wait', 'true');
-          const privateResult = await fetch(privateWebhook, {method: 'POST', body: form, redirect: 'manual', signal: AbortSignal.timeout(15000)});
+          const privateResult = this.env.DISCORD_BOT_TOKEN ? await botPost(this.env,privateHook.channel_id,form) : await fetch(privateWebhook, {method: 'POST', body: form, redirect: 'manual', signal: AbortSignal.timeout(15000)});
           if (!privateResult.ok) return await rejected(privateResult);
           const privateMessage = await privateResult.json();
           if (!/^\d+$/.test(privateMessage.id || '') || !/^\d+$/.test(privateMessage.channel_id || '') ||
               (privateForum ? privateMessage.channel_id === privateHook.channel_id || privateMessage.channel_id === hook.channel_id : privateMessage.channel_id !== privateHook.channel_id)) return json(uncertain.result, 409);
+          uncertain.botPrivate = Boolean(this.env.DISCORD_BOT_TOKEN);
           uncertain.privateURL = `https://discord.com/channels/${privateHook.guild_id}/${privateMessage.channel_id}/${privateMessage.id}`;
           await this.ctx.storage.put(key, uncertain);
         }
         payload.content += `\n\nPrivate diagnostics: ${uncertain.privateURL}`;
-        const result = await fetch(webhook, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload), redirect: 'manual', signal: AbortSignal.timeout(15000)});
+        const result = this.env.DISCORD_BOT_TOKEN ? await botPost(this.env,body.threadID || hook.channel_id,payload) : await fetch(webhook, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload), redirect: 'manual', signal: AbortSignal.timeout(15000)});
         if (!result.ok) return await rejected(result);
         const message = await result.json();
         if (!/^\d+$/.test(message.id || '') || !/^\d+$/.test(message.channel_id || '') || (existingThread && message.channel_id !== body.threadID)) return json(uncertain.result, 409);
@@ -395,7 +399,7 @@ export class Reports {
         await this.ctx.storage.transaction(async storage => {
           if (!existingThread) await storage.put('thread:' + message.channel_id, {id:message.channel_id, title, platform, created:now,reporter:name});
           await storage.put(key, {status: 200, result: response, at: now});
-          await storage.put(referenceKey(platform, body.reference), {threadURL:response.threadURL});
+          await storage.put(referenceKey(platform, body.reference), {threadURL:response.threadURL, ...(this.env.DISCORD_BOT_TOKEN && {botPublic:true}), ...(uncertain.botPrivate && {botPrivateURL:uncertain.privateURL})});
           await storage.put('dashboard-pending:'+platform+':'+body.reference.toUpperCase(),{platform,userID:body.user.id,reference:body.reference.toUpperCase(),title,reporter:name,created:now,threadURL:response.threadURL});
         });
         await this.flushDashboard();
@@ -440,7 +444,7 @@ export class Reports {
       const current = await receipt(store);
       if (current && (current.state !== 'rate_limited' || current.retryAt > Date.now())) return false;
       await store.put(key, {state:'unconfirmed', at:Date.now()});
-      await store.put(referenceKey(platform, reference), {threadURL:mapping.threadURL});
+      await store.put(referenceKey(platform, reference), mapping);
       return true;
     });
     if (!reserved) return json({state:(await receipt(storage)).state});
@@ -451,7 +455,7 @@ export class Reports {
     webhook.searchParams.set('thread_id', match[2]);
     webhook.searchParams.set('wait', 'true');
     try {
-      const response = await fetch(webhook, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload), redirect:'manual', signal:AbortSignal.timeout(15000)});
+      const response = this.env.DISCORD_BOT_TOKEN ? await botPost(this.env,match[2],payload) : await fetch(webhook, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload), redirect:'manual', signal:AbortSignal.timeout(15000)});
       if (response.status === 429) {
         const data = await response.json();
         const seconds = Number(data.retry_after);
