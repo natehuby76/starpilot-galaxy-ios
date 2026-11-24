@@ -385,7 +385,15 @@ export class Reports {
         content: `Report from <@${body.user.id}> (${name})${notify}\nReference: ${body.reference}\n\n${body.description}`,
         allowed_mentions: {parse: [], users: recipients},
         applied_tags: reportTags(this.env, platform, body.source === "galaxy" ? "Galaxy " + body.description : body.description)};
-      if(this.env.DISCORD_BOT_TOKEN && this.env.DISCORD_PUBLIC_KEY)payload.components=caseButtons(body.user.id,platform);
+      if(this.env.DISCORD_BOT_TOKEN && this.env.DISCORD_PUBLIC_KEY){
+        payload.components=caseButtons(body.user.id,platform);
+        const triageOwner=this.env.REPORT_MAINTAINER_ID;
+        if(!existingThread && /^\d+$/.test(triageOwner||'')){
+          if(!recipients.includes(triageOwner))recipients.push(triageOwner);
+          payload.content+=(triageOwner===maintainer?'\n\n':'\n\n<@'+triageOwner+'> ')+
+            'Open Staff Actions to apply tags, mark this report in progress, or assign someone.';
+        }
+      }
       if (existingThread) { delete payload.thread_name; delete payload.applied_tags; webhook.searchParams.set('thread_id', body.threadID); }
       uncertain.title = title;
       // Persist progress only, never diagnostic contents. Unknown outcomes stay blocked.

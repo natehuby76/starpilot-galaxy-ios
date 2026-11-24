@@ -1,9 +1,9 @@
 import {botPost} from './bot-delivery.mjs';
-import {discordTags, getReportThread, supportTags} from './thread-tags.mjs';
+import {discordTags, getReportThread, supportForum, supportTags} from './thread-tags.mjs';
 import {issueDriveLink, sendDriveInvite} from './drive-logs.mjs';
 
 const titles = {
-  note:'Additional Report', assign:'Assign', priority:'Set Priority', status:'Change Status',
+  note:'Additional Report', tags:'Apply tags', working:'Mark in progress', assign:'Assign someone', unassign:'Clear assignment', priority:'Set Priority', status:'Change Status',
   testing:'Request User Testing', rename:'Rename Thread', duplicate:'Link Duplicate',
   connection:'Request Network Logs', controller:'Request Bluetooth Logs'
 };
@@ -36,7 +36,16 @@ export async function caseInteraction(i,env,origin,ctx) {
     return Response.json({type:4,data:{flags:64,components:[row({type:3,custom_id:base+'pick:'+channel,placeholder:'Choose a staff action',options})]}});
   }
   if(!Object.hasOwn(titles,action))return ephemeral('Unknown support action.');
-  const choices={priority:['0','1','2','3','4','5','Clear'],status:['Open','In Progress','Closed'],assign:['Me','Other maintainer','Unassigned']};
+  if(i.type===3 && command==='pick' && action==='assign'){
+    return Response.json({type:4,data:{flags:64,components:[row({type:5,custom_id:base+'assign:'+channel,placeholder:'Choose a server member'})]}});
+  }
+  if(i.type===3 && command==='pick' && action==='tags'){
+    const forum=await discordTags(env,'/channels/'+supportForum);
+    const options=topicTags(forum).map(t=>({label:t.name,value:t.id}));
+    if(!options.length)return ephemeral('No topic tags are configured in this forum.');
+    return Response.json({type:4,data:{flags:64,components:[row({type:3,custom_id:base+'tags:'+channel,placeholder:'Choose tags to add',max_values:Math.min(5,options.length),options})]}});
+  }
+  const choices={priority:['0','1','2','3','4','5','Clear'],status:['Open','In Progress','Closed']};
   if(i.type===3 && command==='pick' && choices[action]){
     return Response.json({type:4,data:{flags:64,components:[row({type:3,custom_id:base+action+':'+channel,placeholder:titles[action],options:choices[action].map(value=>({label:value,value}))})]}});
   }
@@ -44,8 +53,9 @@ export async function caseInteraction(i,env,origin,ctx) {
   if(i.type===3 && prompts[action]){
     return Response.json({type:9,data:{title:titles[action],custom_id:base+action+':'+channel,components:[row({type:4,custom_id:'value',label:prompts[action],style:['note','testing'].includes(action)?2:1,required:true,max_length:action==='rename'?100:action==='duplicate'?20:1500})]}});
   }
-  const value=i.type===5?i.data.components?.[0]?.components?.[0]?.value?.trim():i.data.values?.[0];
+  const value=action==='tags'?i.data.values:i.type===5?i.data.components?.[0]?.components?.[0]?.value?.trim():i.data.values?.[0];
   if(prompts[action] && (!value||i.type!==5) || choices[action]&&!choices[action].includes(value))return ephemeral('Choose a valid value.');
+  if(action==='assign'&&(!idPattern.test(value)||!i.data.resolved?.members?.[value]))return ephemeral('Choose a server member.');
   const owner=env.REPORTS.get(env.REPORTS.idFromName(user));
   ctx.waitUntil((async()=>{
     let content='Could not confirm the action. Check the thread before retrying.';
@@ -57,6 +67,11 @@ export async function caseInteraction(i,env,origin,ctx) {
     }
   })());
   return Response.json({type:5,data:{flags:64}});
+}
+
+function topicTags(forum){
+  const reserved=['Open','In Progress','Closed','iOS','Android'].map(name=>supportTags[name]);
+  return (forum.available_tags||[]).filter(tag=>!reserved.includes(tag.id));
 }
 
 export async function caseAction(storage,env,b){
@@ -89,25 +104,31 @@ export async function caseAction(storage,env,b){
   }else if(action==='rename'){
     await discordTags(env,'/channels/'+channel,{name:value});
     patch.title=value;message='Renamed this report to '+value+'.';
-  }else if(action==='assign'){
-    const id=value==='Me'?actor:[env.REPORT_MAINTAINER_ID,env.ANDROID_REPORT_MAINTAINER_ID].find(id=>id&&id!==actor);
-    if(!id&&value!=='Unassigned')return result('No other maintainer is configured.');
-    patch.assignee=value==='Unassigned'?null:id;
-    message=patch.assignee?'Assigned to <@'+id+'>.':'Assignment cleared.';
+  }else if(action==='assign'||action==='unassign'){
+    patch.assignee=action==='assign'?value:null;
+    message=patch.assignee?'Assigned to <@'+value+'>.':'Assignment cleared.';
+  }else if(action==='tags'){
+    const allowed=topicTags(await discordTags(env,'/channels/'+supportForum));
+    if(!Array.isArray(value)||!value.length||value.some(id=>!allowed.some(t=>t.id===id)))return result('Reopen Apply tags to see the current choices.');
+    const tags=[...new Set([...thread.applied_tags,...value])];
+    if(tags.length>5)return result('Discord allows five tags. Remove a tag or choose fewer.');
+    await discordTags(env,'/channels/'+channel,{applied_tags:tags});
+    message='Applied tags: '+allowed.filter(t=>value.includes(t.id)).map(t=>t.name).join(', ')+'.';
   }else if(action==='priority'){
     patch.priority=value==='Clear'?null:value;
     message=patch.priority===null?'Priority cleared.':'Priority '+value+' (0 is highest).';
-  }else if(action==='status'){
+  }else if(action==='status'||action==='working'){
+    const status=action==='working'?'In Progress':value;
     const statuses=['Open','In Progress','Closed'].map(name=>supportTags[name]);
-    const tags=[...thread.applied_tags.filter(id=>!statuses.includes(id)),supportTags[value]];
+    const tags=[...thread.applied_tags.filter(id=>!statuses.includes(id)),supportTags[status]];
     if(tags.length>5)return result('Remove a forum tag to make room for the status.');
     await discordTags(env,'/channels/'+channel,{applied_tags:tags});
-    message='Status changed to '+value+'.';
+    message=action==='working'?'<@'+actor+'> is working on this report.':'Status changed to '+status+'.';
   }else if(action==='testing')message='Testing requested from <@'+user+'>\n'+value;
   else if(action==='note')message='Additional report from <@'+actor+'>\n'+value;
   else return result('Unknown action.');
   if(Object.keys(patch).length)await storage.transaction(async tx=>tx.put(key,{...await tx.get(key),...patch}));
-  const post=await botPost(env,channel,{content:message,nonce:b.interaction,enforce_nonce:true,allowed_mentions:{parse:[],users:action==='testing'?[user]:[]}});
+  const post=await botPost(env,channel,{content:message,nonce:b.interaction,enforce_nonce:true,allowed_mentions:{parse:[],users:action==='testing'?[user]:action==='assign'?[value]:[]}});
   return result(post.ok?'Updated this report.':'Could not confirm the update message. Refresh the thread.');
 }
 

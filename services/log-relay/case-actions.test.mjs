@@ -13,7 +13,7 @@ test('reporter can add details and staff get a private action menu',async()=>{
   assert.equal((await (await caseInteraction(interaction('menu','2'),env)).json()).data.components,undefined);
   const menu=await (await caseInteraction(interaction('menu','3'),env)).json();
   assert.equal(menu.data.flags,64);
-  assert.equal(menu.data.components[0].components[0].options.length,8);
+  assert.deepEqual(menu.data.components[0].components[0].options.slice(0,3).map(o=>o.value),['tags','working','assign']);
   assert.match((await (await caseInteraction(interaction('priority:5','2'),env)).json()).data.content,/original/);
 });
 test('priority is stored on the verified ticket and a repeated interaction posts once',async()=>{
@@ -33,5 +33,25 @@ test('priority is stored on the verified ticket and a repeated interaction posts
     assert.equal(data.get('thread:4').title,'Original');
     assert.equal(messages.length,1);
     assert.deepEqual(messages[0].allowed_mentions.parse,[]);
+  }finally{globalThis.fetch=prior;}
+});
+
+test('marking in progress preserves topics and assignment uses a Discord user picker',async()=>{
+  const pick=interaction('pick:4','3');
+  pick.data.values=['assign'];
+  const picker=await (await caseInteraction(pick,env)).json();
+  assert.equal(picker.data.flags,64);
+  assert.equal(picker.data.components[0].components[0].type,5);
+  const prior=globalThis.fetch, patched=[];
+  globalThis.fetch=async(url,options)=>{
+    if(options.method==='PATCH'){patched.push(JSON.parse(options.body));return Response.json({});}
+    if(options.method==='POST')return Response.json({id:'8'});
+    return Response.json({id:'4',type:11,parent_id:supportForum,applied_tags:['1565236988913913887','42']});
+  };
+  const data=new Map([['thread:4',{platform:'ios'}]]);
+  const store={get:k=>data.get(k),put:(k,v)=>data.set(k,v),transaction:fn=>fn(store)};
+  try{
+    await caseAction(store,env,{channel:'4',platform:'ios',action:'working',actor:'3',interaction:'11'});
+    assert.deepEqual(patched,[{applied_tags:['42','1565237023265263657']}]);
   }finally{globalThis.fetch=prior;}
 });
