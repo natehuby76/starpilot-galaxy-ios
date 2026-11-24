@@ -182,12 +182,23 @@ export async function driveObject(request,storage,env) {
     if(reserved==='pending')return unconfirmed();
     let result;
     try {
-      result=await postWebhook(env.DISCORD_WEBHOOK_URL,threadID,{
-        content:['connection','controller'].includes(record.kind)
-          ? 'Please send fresh '+record.kind+' logs for this report. Open this link on your phone and sign in with Discord to get your code. Enter it in Galaxy under '+(record.kind==='controller'?'Bluetooth':'Networks')+' → Connection logs → Send to existing Discord thread: <'+record.origin+'/report/galaxy/fresh/'+record.token+'>'
-          : 'Submit your drive logs privately: <'+record.origin+'/drive/'+record.token+'>',
-        allowed_mentions:{parse:[]}
-      });
+      const capture = ['connection','controller'].includes(record.kind);
+      const page = record.kind === 'controller' ? 'Bluetooth' : 'Networks';
+      const link = record.origin+(capture ? '/report/galaxy/fresh/' : '/drive/')+record.token;
+      const content = capture
+        ? 'Support requested '+(record.kind === 'controller' ? 'physical controller diagnostics' : 'phone app connection diagnostics')+'. Sign in on your phone to get your code, then enter it on the comma in Galaxy → '+page+' → Connection logs → Send to existing Discord thread.'
+        : 'Submit your drive logs privately:';
+      if(capture && env.DISCORD_BOT_TOKEN){
+        result = await fetch('https://discord.com/api/v10/channels/'+threadID+'/messages',{
+          method:'POST',redirect:'manual',signal:AbortSignal.timeout(15000),
+          headers:{Authorization:'Bot '+env.DISCORD_BOT_TOKEN,'Content-Type':'application/json'},
+          body:JSON.stringify({content,allowed_mentions:{parse:[]},components:[{type:1,components:[
+            {type:2,style:5,label:'Get my Galaxy code',url:link}
+          ]}]})
+        });
+      } else {
+        result=await postWebhook(env.DISCORD_WEBHOOK_URL,threadID,{content:content+' <'+link+'>',allowed_mentions:{parse:[]}});
+      }
     } catch {
       return unconfirmed();
     }

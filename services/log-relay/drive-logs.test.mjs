@@ -14,6 +14,10 @@ function fixture(t){
     const target=new URL(url);
     if(target.pathname==='/api/v10/channels/777')return Response.json({id:'777',name:'test thread',type:11,parent_id:supportForum,applied_tags:[]});
     if(target.pathname==='/api/webhooks/123/public/messages/777')return Response.json({id:'777',channel_id:'777'});
+    if(target.pathname==='/api/v10/channels/777/messages'){
+      assert.equal(init.headers.Authorization,'Bot test');
+      posts.push({invite:JSON.parse(init.body)});return Response.json({id:'456',channel_id:'777'});
+    }
     const priv=target.pathname.endsWith('/private');
     if(init.method!=='POST')return Response.json({guild_id:'1',channel_id:priv?'888':supportForum});
     if(!priv && rejectReceipt){rejectReceipt=false;return new Response('',{status:429});}
@@ -107,3 +111,17 @@ test('dashboard can issue a link for a saved report without bot access',async t=
   assert.equal((await sendDriveInvite(f.env,'777',token)).status,200);
   assert.equal(f.posts.length,1);
 });
+
+for (const [kind,page] of [['controller','Bluetooth'],['connection','Networks']]) {
+  test('bot posts the selected '+kind+' code button in the requesting thread',async t=>{
+    const f=fixture(t);
+    const {url}=await (await issueDriveLink(f.env,'777','https://example.com',{userID:'555',platform:'ios'},kind)).json();
+    const token=new URL(url).pathname.split('/').pop();
+    assert.deepEqual(await (await sendDriveInvite(f.env,'777',token)).json(),{sent:true});
+    const {invite}=f.posts[0];
+    assert.ok(invite.content.includes('Galaxy → '+page+' → Connection logs'));
+    assert.equal(invite.components[0].components[0].url,url);
+    assert.match(url,/[/]report[/]galaxy[/]fresh[/]/);
+    assert.deepEqual(invite.allowed_mentions.parse,[]);
+  });
+}
