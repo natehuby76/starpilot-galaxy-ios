@@ -1,5 +1,5 @@
 import {caseInteraction,reporterButtons} from './case-actions.mjs';
-import {botPost} from './bot-delivery.mjs';
+import {botPost,supportCard} from './bot-delivery.mjs';
 import {rememberDriveMessage,webhookMessage} from './codex-review.mjs';
 import { getReportThread, supportTags, supportForum } from './thread-tags.mjs';
 
@@ -203,9 +203,9 @@ export async function driveObject(request,storage,env) {
         result = await fetch('https://discord.com/api/v10/channels/'+threadID+'/messages',{
           method:'POST',redirect:'manual',signal:AbortSignal.timeout(15000),
           headers:{Authorization:'Bot '+env.DISCORD_BOT_TOKEN,'Content-Type':'application/json'},
-          body:JSON.stringify({content:[mention,content].filter(Boolean).join('\n'),allowed_mentions:mentions,components:[{type:1,components:[
+          body:JSON.stringify({...supportCard(mention,content,[{type:1,components:[
             {type:2,style:5,label:capture ? 'Get my Galaxy code' : 'Submit drive logs',url:link}
-          ]},...(reporter&&['ios','android'].includes(record.platform)?[reporterButtons(reporter,record.platform,threadID)]:[])]})
+          ]},...(reporter&&['ios','android'].includes(record.platform)?[reporterButtons(reporter,record.platform,threadID)]:[])]),allowed_mentions:mentions})
         });
       } else {
         result=await postWebhook(env.DISCORD_WEBHOOK_URL,threadID,{content:[mention,content,'<'+link+'>'].filter(Boolean).join('\n'),allowed_mentions:mentions});

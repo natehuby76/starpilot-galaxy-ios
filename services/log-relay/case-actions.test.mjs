@@ -63,3 +63,20 @@ test('only the reporter can give feedback or mark a request fulfilled',async()=>
   assert.equal((await open('fulfilled:4','3')).data.flags,64);
   assert.equal((await open('fulfilled:5','1')).data.flags,64);
 });
+
+test('each reporter update puts working staff controls beneath the new card',async t=>{
+  const data=new Map([['thread:4',{platform:'ios'}]]);
+  const store={get:k=>data.get(k),put:(k,v)=>data.set(k,v),transaction:fn=>fn(store)};
+  const posts=[];
+  t.mock.method(globalThis,'fetch',async(url,options)=>{
+    if(options.method==='POST'){posts.push(JSON.parse(options.body));return Response.json({id:'8'});}
+    return Response.json({id:'4',type:11,parent_id:supportForum,applied_tags:[]});
+  });
+  for(const action of ['feedback','note']){
+    await caseAction(store,env,{channel:'4',platform:'ios',user:'1',actor:'1',action,value:'Still happens',interaction:action});
+    const post=posts.at(-1);
+    assert.equal(post.flags,32768);
+    assert.match(post.components[0].components[0].content,/Still happens/);
+    assert.equal(post.components[1].components[1].custom_id,'case:1:ios:menu');
+  }
+});

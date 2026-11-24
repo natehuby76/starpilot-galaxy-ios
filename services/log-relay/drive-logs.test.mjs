@@ -104,7 +104,7 @@ test('Companion-Bot sends the drive link once to its original thread',async t=>{
   assert.equal((await sendDriveInvite(f.env,'777',token)).status,200);
   assert.equal((await sendDriveInvite(f.env,'777',token)).status,200);
   assert.equal(f.posts.length,1);
-  assert.equal(f.posts[0].invite.components[0].components[0].url,url);
+  assert.equal(f.posts[0].invite.components[1].components[0].url,url);
   assert.deepEqual(f.posts[0].invite.allowed_mentions.parse,[]);
 });
 
@@ -129,12 +129,15 @@ for (const [kind,page] of [['controller','Bluetooth'],['connection','Networks']]
     const token=new URL(url).pathname.split('/').pop();
     assert.deepEqual(await (await sendDriveInvite(f.env,'777',token)).json(),{sent:true});
     const {invite}=f.posts[0];
-    assert.ok(invite.content.startsWith('<@555>\n'));
-    assert.match(invite.content,/Capture and send/);
-    assert.match(invite.content,/Manual ZIP download/);
+    assert.equal(invite.components[0].content,'<@555>');
+    assert.equal(invite.flags,32768);
+    assert.equal(invite.components[1].type,17);
+    const text=invite.components[1].components[0].content;
+    assert.match(text,/Capture and send/);
+    assert.match(text,/Manual ZIP download/);
     assert.deepEqual(invite.allowed_mentions.users,['555']);
-    assert.ok(invite.content.includes('Galaxy → Galaxy Access & Connections → '+page+' → Connection logs'));
-    assert.equal(invite.components[0].components[0].url,url);
+    assert.ok(text.includes('Galaxy → Galaxy Access & Connections → '+page+' → Connection logs'));
+    assert.equal(invite.components[2].components[0].url,url);
     assert.match(url,/[/]report[/]galaxy[/]fresh[/]/);
     assert.deepEqual(invite.allowed_mentions.parse,[]);
   });

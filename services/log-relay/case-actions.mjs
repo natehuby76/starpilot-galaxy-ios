@@ -1,4 +1,4 @@
-import {botPost} from './bot-delivery.mjs';
+import {botPost,supportCard} from './bot-delivery.mjs';
 import {discordTags, getReportThread, supportForum, supportTags} from './thread-tags.mjs';
 import {issueDriveLink, sendDriveInvite} from './drive-logs.mjs';
 
@@ -140,8 +140,12 @@ export async function caseAction(storage,env,b){
   const payload={content:message,nonce:b.interaction,enforce_nonce:true,
     allowed_mentions:{parse:[],users:action==='testing'?[user]:action==='assign'?[value]:[]}};
   if(action==='testing'){
-    payload.content=[message,'**Waiting for user testing**',value,'','Choose **Give feedback** to share your results, or **My request is fulfilled** to close the report.'].join('\n');
-    payload.components=[reporterButtons(user,platform,channel)];
+    const text=['**Waiting for user testing**',value,'','Choose **Give feedback** to share your results, or **My request is fulfilled** to close the report.'].join('\n');
+    delete payload.content;
+    Object.assign(payload,supportCard(message,text,[reporterButtons(user,platform,channel)]));
+  }else if(action==='feedback'||action==='note'){
+    delete payload.content;
+    Object.assign(payload,supportCard('',message,caseButtons(user,platform)));
   }
   const post=await botPost(env,channel,payload);
   return result(post.ok?'Updated this report.':'Could not confirm the update message. Refresh the thread.');

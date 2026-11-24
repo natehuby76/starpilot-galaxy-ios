@@ -1,3 +1,10 @@
+export function supportCard(mention,text,buttons){
+  const components=[];
+  if(mention) components.push({type:10,content:mention});
+  components.push({type:17,accent_color:0xf2b134,components:[{type:10,content:text}]},...buttons);
+  return {flags:1<<15,components};
+}
+
 // Normalize Discord's forum-thread response to the same message receipt used for replies.
 export async function botPost(env, channel, payload) {
   if (!env.DISCORD_BOT_TOKEN || !/^[0-9]{1,20}$/.test(channel)) throw Error('Bot destination unavailable');
