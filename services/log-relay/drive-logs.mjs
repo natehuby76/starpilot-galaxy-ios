@@ -1,4 +1,4 @@
-import {caseInteraction} from './case-actions.mjs';
+import {caseInteraction,reporterButtons} from './case-actions.mjs';
 import {botPost} from './bot-delivery.mjs';
 import {rememberDriveMessage,webhookMessage} from './codex-review.mjs';
 import { getReportThread, supportTags, supportForum } from './thread-tags.mjs';
@@ -27,7 +27,7 @@ export async function issueDriveLink(env, threadID, origin, report, kind = "driv
   }
   const token = hex(crypto.getRandomValues(new Uint8Array(32)));
   const saved = await object(env, token).fetch('https://reports/drive/issue', {
-    method:'POST', body:JSON.stringify({threadID, token, origin, title, kind, ...(kind !== "drive" && {userID:report.userID, platform:report.platform}), expires:Date.now()+day, reference:crypto.randomUUID()})
+    method:'POST', body:JSON.stringify({threadID, token, origin, title, kind, userID:report?.userID, platform:report?.platform, expires:Date.now()+day, reference:crypto.randomUUID()})
   });
   if (!saved.ok) return saved;
   return reply({url:origin+(kind === 'drive' ? '/drive/' : '/report/galaxy/fresh/')+token});
@@ -190,16 +190,19 @@ export async function driveObject(request,storage,env) {
       const content = capture
         ? 'Support requested '+(record.kind === 'controller' ? 'physical controller diagnostics' : 'phone app connection diagnostics')+'. Tap Get my Galaxy code and sign in on your phone. If the app cannot connect, use Galaxy on the comma or open its Local Galaxy address in a browser on the same Wi-Fi. The comma needs internet to find the report and send logs. In Galaxy → Galaxy Access & Connections → '+page+' → Connection logs → Send to existing Discord thread. If the comma is offline, use your phone’s browser on the local Galaxy network. Open '+(record.kind==='controller'?'Bluetooth → Get help → Bluetooth Controller Support':'Networks → Connection logs')+' → Manual ZIP download, then Capture logs → Download ZIP. Once your phone is online, reopen this request and choose the offline ZIP option to send it privately.'
         : 'Submit your drive logs privately:';
+      const reporter=/^\d{1,20}$/.test(record.userID) ? record.userID : null;
+      const mention=reporter ? '<@'+reporter+'>' : '';
+      const mentions={parse:[],users:reporter?[reporter]:[]};
       if(env.DISCORD_BOT_TOKEN){
         result = await fetch('https://discord.com/api/v10/channels/'+threadID+'/messages',{
           method:'POST',redirect:'manual',signal:AbortSignal.timeout(15000),
           headers:{Authorization:'Bot '+env.DISCORD_BOT_TOKEN,'Content-Type':'application/json'},
-          body:JSON.stringify({content,allowed_mentions:{parse:[]},components:[{type:1,components:[
+          body:JSON.stringify({content:mention,embeds:[{title:capture?(record.kind==='controller'?'Bluetooth logs requested':'Network logs requested'):'Drive logs requested',description:content,color:0xf2b134}],allowed_mentions:mentions,components:[{type:1,components:[
             {type:2,style:5,label:capture ? 'Get my Galaxy code' : 'Submit drive logs',url:link}
-          ]}]})
+          ]},...(reporter&&['ios','android'].includes(record.platform)?[reporterButtons(reporter,record.platform,threadID)]:[])]})
         });
       } else {
-        result=await postWebhook(env.DISCORD_WEBHOOK_URL,threadID,{content:content+' <'+link+'>',allowed_mentions:{parse:[]}});
+        result=await postWebhook(env.DISCORD_WEBHOOK_URL,threadID,{content:[mention,content,'<'+link+'>'].filter(Boolean).join('\n'),allowed_mentions:mentions});
       }
     } catch {
       return unconfirmed();

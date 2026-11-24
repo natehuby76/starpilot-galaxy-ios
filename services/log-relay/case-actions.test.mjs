@@ -55,3 +55,11 @@ test('marking in progress preserves topics and assignment uses a Discord user pi
     assert.deepEqual(patched,[{applied_tags:['42','1565237023265263657']}]);
   }finally{globalThis.fetch=prior;}
 });
+
+test('only the reporter can give feedback or mark a request fulfilled',async()=>{
+  const open=async(command,actor)=> (await caseInteraction(interaction(command,actor),env)).json();
+  assert.equal((await open('feedback:4','1')).type,9);
+  assert.equal((await open('feedback:4','2')).data.flags,64);
+  assert.equal((await open('fulfilled:4','3')).data.flags,64);
+  assert.equal((await open('fulfilled:5','1')).data.flags,64);
+});

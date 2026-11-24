@@ -11,6 +11,11 @@ const row = component => ({type:1,components:[component]});
 const ephemeral = content => Response.json({type:4,data:{flags:64,content,allowed_mentions:{parse:[]}}});
 const idPattern = /^\d{1,20}$/;
 
+export function reporterButtons(user,platform,channel) {
+  const button=(action,label,style)=>({type:2,style,label,custom_id:['case',user,platform,action,channel].join(':')});
+  return {type:1,components:[button('feedback','Give feedback',1),button('fulfilled','My request is fulfilled',3)]};
+}
+
 export function caseButtons(user, platform) {
   const button = (action,label,style) => ({type:2,style,label,custom_id:['case',user,platform,action].join(':')});
   return [{type:1,components:[button('note',titles.note,2),button('menu','Staff Actions',1)]}];
@@ -30,12 +35,14 @@ export async function caseInteraction(i,env,origin,ctx) {
   }
   const base=['case',user,platform].join(':')+':';
   const action=command==='pick'?i.data.values?.[0]:command;
-  if(action==='note' ? actor!==user&&!sage : !sage) return ephemeral(action==='note'?'Only the reporter or StarPilot Sage can add details.':'Staff Actions requires the StarPilot Sage role.');
+  const reporterAction=['feedback','fulfilled'].includes(action);
+  if(reporterAction && (actor!==user || bound!==channel))return ephemeral('Only the original reporter can respond to this request.');
+  if(!reporterAction && (action==='note' ? actor!==user&&!sage : !sage)) return ephemeral(action==='note'?'Only the reporter or StarPilot Sage can add details.':'Staff Actions requires the StarPilot Sage role.');
   if(i.type===3 && command==='menu'){
     const options=Object.entries(titles).filter(([k])=>k!=='note').map(([value,label])=>({label,value}));
     return Response.json({type:4,data:{flags:64,components:[row({type:3,custom_id:base+'pick:'+channel,placeholder:'Choose a staff action',options})]}});
   }
-  if(!Object.hasOwn(titles,action))return ephemeral('Unknown support action.');
+  if(!reporterAction&&!Object.hasOwn(titles,action))return ephemeral('Unknown support action.');
   if(i.type===3 && command==='pick' && action==='assign'){
     return Response.json({type:4,data:{flags:64,components:[row({type:5,custom_id:base+'assign:'+channel,placeholder:'Choose a server member'})]}});
   }
@@ -49,9 +56,9 @@ export async function caseInteraction(i,env,origin,ctx) {
   if(i.type===3 && command==='pick' && choices[action]){
     return Response.json({type:4,data:{flags:64,components:[row({type:3,custom_id:base+action+':'+channel,placeholder:titles[action],options:choices[action].map(value=>({label:value,value}))})]}});
   }
-  const prompts={note:'What happened?',testing:'Build and steps to test',rename:'New thread title',duplicate:'Original support thread ID'};
+  const prompts={feedback:'What did you find or what do you need?',note:'What happened?',testing:'Build and steps to test',rename:'New thread title',duplicate:'Original support thread ID'};
   if(i.type===3 && prompts[action]){
-    return Response.json({type:9,data:{title:titles[action],custom_id:base+action+':'+channel,components:[row({type:4,custom_id:'value',label:prompts[action],style:['note','testing'].includes(action)?2:1,required:true,max_length:action==='rename'?100:action==='duplicate'?20:1500})]}});
+    return Response.json({type:9,data:{title:titles[action]||'Give feedback',custom_id:base+action+':'+channel,components:[row({type:4,custom_id:'value',label:prompts[action],style:['note','testing','feedback'].includes(action)?2:1,required:true,max_length:action==='rename'?100:action==='duplicate'?20:1500})]}});
   }
   const value=action==='tags'?i.data.values:i.type===5?i.data.components?.[0]?.components?.[0]?.value?.trim():i.data.values?.[0];
   if(prompts[action] && (!value||i.type!==5) || choices[action]&&!choices[action].includes(value))return ephemeral('Choose a valid value.');
@@ -80,6 +87,7 @@ export async function caseAction(storage,env,b){
   const key='thread:'+channel;
   const record=await storage.get(key);
   if(!record||record.platform!==platform)return result('This ticket could not be verified.');
+  if(['feedback','fulfilled'].includes(action)&&actor!==user)return result('Only the reporter can respond.');
   const thread=await getReportThread(env,channel);
   const fresh=await storage.transaction(async tx=>{
     const recent=await tx.get('case-interactions')||[];
@@ -117,18 +125,26 @@ export async function caseAction(storage,env,b){
   }else if(action==='priority'){
     patch.priority=value==='Clear'?null:value;
     message=patch.priority===null?'Priority cleared.':'Priority '+value+' (0 is highest).';
-  }else if(action==='status'||action==='working'){
-    const status=action==='working'?'In Progress':value;
+  }else if(action==='status'||action==='working'||action==='fulfilled'){
+    const status=action==='fulfilled'?'Closed':action==='working'?'In Progress':value;
     const statuses=['Open','In Progress','Closed'].map(name=>supportTags[name]);
     const tags=[...thread.applied_tags.filter(id=>!statuses.includes(id)),supportTags[status]];
     if(tags.length>5)return result('Remove a forum tag to make room for the status.');
     await discordTags(env,'/channels/'+channel,{applied_tags:tags});
-    message=action==='working'?'<@'+actor+'> is working on this report.':'Status changed to '+status+'.';
-  }else if(action==='testing')message='Testing requested from <@'+user+'>\n'+value;
+    message=action==='fulfilled'?'The reporter marked this request fulfilled.':action==='working'?'<@'+actor+'> is working on this report.':'Status changed to '+status+'.';
+  }else if(action==='testing')message='<@'+user+'>';
+  else if(action==='feedback')message='Feedback from <@'+actor+'>\n'+value;
   else if(action==='note')message='Additional report from <@'+actor+'>\n'+value;
   else return result('Unknown action.');
   if(Object.keys(patch).length)await storage.transaction(async tx=>tx.put(key,{...await tx.get(key),...patch}));
-  const post=await botPost(env,channel,{content:message,nonce:b.interaction,enforce_nonce:true,allowed_mentions:{parse:[],users:action==='testing'?[user]:action==='assign'?[value]:[]}});
+  const payload={content:message,nonce:b.interaction,enforce_nonce:true,
+    allowed_mentions:{parse:[],users:action==='testing'?[user]:action==='assign'?[value]:[]}};
+  if(action==='testing'){
+    payload.embeds=[{title:'🧪 Waiting for user testing',description:value,color:0xf2b134,
+      footer:{text:'Share your results below or mark the request fulfilled.'}}];
+    payload.components=[reporterButtons(user,platform,channel)];
+  }
+  const post=await botPost(env,channel,payload);
   return result(post.ok?'Updated this report.':'Could not confirm the update message. Refresh the thread.');
 }
 
