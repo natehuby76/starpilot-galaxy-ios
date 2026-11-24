@@ -452,3 +452,13 @@ error, not a misleading empty list. With no bot configured, existing submission
 behavior is preserved and tag controls explain the missing setup.
 
 Test: `node --test worker.test.mjs dashboard.test.mjs notify-support.test.mjs thread-tags.test.mjs`
+
+## Drive log links
+
+In the support dashboard, choose an open report and select **Create drive log link**. Send that URL to the driver. It expires after 24 hours. A driver can submit a comma connect route link, a Zstandard segment file named `rlog.zst` or `qlog.zst`, or both. Timing and notes are optional. A link to a private comma connect route retains its original access requirements.
+
+The relay verifies the support forum, sends the details to the separate private forum, then sends the original support thread a receipt bearing the same reference. A confirmed private delivery survives a receipt retry. An uncertain Discord delivery requires checking the reference before issuing a new link.
+
+By default the private Discord post carries the file. The form accepts up to 24 MiB and the webhook is also subject to Discord's actual upload limit. To use private, expiring object downloads instead, bind a private R2 bucket as `DRIVE_FILES`. The Worker makes the file available for seven days and deletes it with a Durable Object alarm. Keep the binding in place through the retention period.
+
+The dashboard issuer uses the existing dashboard session. For issuing links directly in Discord, register a guild chat-input command named `request-logs` with the description `Create a private drive log submission link`, set `DISCORD_PUBLIC_KEY` to the application's verification key, and configure the interaction endpoint as `/drive-interactions` on the relay. Discord allows one interaction endpoint per application. If the application already uses one, integrate this command with its existing dispatcher before switching endpoints. The command responds privately and is restricted to the configured support maintainers and open support threads.

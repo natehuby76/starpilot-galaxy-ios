@@ -1,0 +1,77 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {driveObject,drivePage,issueDriveLink} from './drive-logs.mjs';
+import {supportForum} from './thread-tags.mjs';
+
+function fixture(t){
+  const records=new Map(), posts=[];
+  const store={get:async k=>structuredClone(records.get(k)),put:async(k,v)=>records.set(k,structuredClone(v)),transaction:async cb=>cb(store),setAlarm:async()=>{}};
+  const env={DISCORD_WEBHOOK_URL:'https://discord.com/api/webhooks/123/public',DISCORD_PRIVATE_WEBHOOK_URL:'https://discord.com/api/webhooks/456/private',DISCORD_PRIVATE_FORUM:'true',DISCORD_BOT_TOKEN:'test'};
+  const run=(path,init)=>driveObject(new Request('https://reports'+path,init),store,env);
+  env.REPORTS={idFromName:x=>x,get:()=>({fetch:(url,init)=>driveObject(new Request(url,init),store,env)})};
+  let rejectReceipt=false;
+  t.mock.method(globalThis,'fetch',async (url,init)=>{
+    const target=new URL(url);
+    if(target.pathname==='/api/v10/channels/777')return Response.json({id:'777',name:'test thread',type:11,parent_id:supportForum,applied_tags:[]});
+    const priv=target.pathname.endsWith('/private');
+    if(init.method!=='POST')return Response.json({guild_id:'1',channel_id:priv?'888':supportForum});
+    if(!priv && rejectReceipt){rejectReceipt=false;return new Response('',{status:429});}
+    posts.push({priv,body:init.body});
+    if(!priv)assert.equal(target.searchParams.get('thread_id'),'777');
+    return Response.json({id:'111',channel_id:priv?'222':'777'});
+  });
+  const form=()=>{const data=new FormData();data.set('route','https://connect.comma.ai/test/drive');data.set('note','private test note');data.set('time','6:49');return data;};
+  const send=body=>run('/drive/send',{method:'POST',body});
+  return {env,store,run,form,posts,send,rejectOnce:()=>{rejectReceipt=true;}};
+}
+
+test('issue a link, deliver private details and attach a segment, publish only a receipt',async t=>{
+  const f=fixture(t);
+  const {url}=await (await issueDriveLink(f.env,'777','https://example.com')).json();
+  const token=new URL(url).pathname.split('/').pop();
+  assert.match(token,/^[a-f0-9]{64}$/);
+  assert.match(await (await drivePage(new Request(url),f.env,token)).text(),/private support forum/);
+  const data=f.form();data.set('log',new Blob([new Uint8Array([40,181,47,253])]),'rlog.zst');
+  assert.equal((await f.send(data)).status,200);
+  assert.equal(f.posts.length,2);
+  const [priv,pub]=f.posts;
+  assert.ok(priv.priv);
+  assert.match(await priv.body.get('files[0]').text(),/private test note/);
+  assert.equal(priv.body.get('files[1]').name,'rlog.zst');
+  const state=await f.store.get('drive');
+  assert.equal(JSON.parse(pub.body).content,'Drive logs received. Reference: '+state.reference);
+  await f.send(f.form());
+  assert.equal(f.posts.length,2);
+});
+test('a retry delivers the receipt without duplicating the private post',async t=>{
+  const f=fixture(t);
+  await issueDriveLink(f.env,'777','https://example.com');
+  f.rejectOnce();
+  assert.equal((await f.send(f.form())).status,503);
+  assert.equal((await f.send(f.form())).status,200);
+  assert.equal(f.posts.filter(p=>p.priv).length,1);
+});
+test('reject arbitrary URLs, expired invitations and files with invalid compression',async t=>{
+  const f=fixture(t);
+  await issueDriveLink(f.env,'777','https://example.com');
+  const data=f.form();data.set('route','https://other.example/test');
+  assert.equal((await f.send(data)).status,400);
+  const bad=f.form();bad.set('log',new Blob(['bad']),'qlog.zst');
+  assert.equal((await f.send(bad)).status,400);
+  await f.store.put('drive',{expires:0});
+  assert.equal((await f.send(f.form())).status,410);
+  assert.equal(f.posts.length,0);
+});
+test('R2 download requires the private download token and expires',async t=>{
+  const f=fixture(t);let bytes;
+  f.env.DRIVE_FILES={put:async(k,stream)=>{bytes=await new Response(stream).arrayBuffer();},get:async()=>({body:bytes})};
+  await issueDriveLink(f.env,'777','https://example.com');
+  const data=f.form();data.set('log',new Blob([new Uint8Array([40,181,47,253])]),'rlog.zst');
+  await f.send(data);
+  const state=await f.store.get('drive');
+  assert.equal((await f.run('/drive/file/wrong')).status,404);
+  const download=await f.run('/drive/file/'+state.downloadToken);
+  assert.equal((await download.arrayBuffer()).byteLength,4);
+  await f.store.put('drive',{...state,fileExpires:0});
+  assert.equal((await f.run('/drive/file/'+state.downloadToken)).status,404);
+});

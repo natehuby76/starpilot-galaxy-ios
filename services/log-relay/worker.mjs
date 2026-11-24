@@ -1,3 +1,4 @@
+import {driveObject, drivePage, driveDownload, driveInteraction} from './drive-logs.mjs';
 import {filterReportThreads,getReportThread,supportTags} from './thread-tags.mjs';
 import {dashboardAuth} from './dashboard-auth.mjs';
 import {dashboardPage, dashboardAPI} from './dashboard.mjs';
@@ -46,6 +47,11 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     try {
+      if (url.pathname === '/drive-interactions' && request.method === 'POST') return await driveInteraction(request,env,BASE);
+      const file=/^\/drive-file\/([a-f0-9]{64})\/([a-f0-9]{64})$/.exec(url.pathname);
+      if(file && request.method==='GET')return driveDownload(env,file[1],file[2]);
+      const drive = /^\/drive\/([a-f0-9]{64})$/.exec(url.pathname);
+      if (drive) return await drivePage(request,env,drive[1]);
       if (request.method === 'GET' && url.pathname === '/') return json({service: 'StarPilot log relay', version: 19});
       if (request.method === 'GET' && /^\/dashboard(?:\/(?:ios|android))?$/.test(url.pathname)) return dashboardPage();
       const authRoute=/^\/v1\/(ios|android)\/dashboard\/auth\/(state|setup|login|logout)$/.exec(url.pathname);
@@ -54,7 +60,7 @@ export default {
         const owner=env.REPORTS.get(env.REPORTS.idFromName('dashboard:'+authRoute[1]));
         return await owner.fetch('https://reports/auth-'+authRoute[2],{method:'POST',body:JSON.stringify({...body,ip:request.headers.get('CF-Connecting-IP')||'unknown'})});
       }
-      const releaseRoute = /^\/v1\/(android|ios)\/(?:build-notice(?:\/status)?|dashboard\/(?:reports|commits|import|setup-link|tags))$/.exec(url.pathname);
+      const releaseRoute = /^\/v1\/(android|ios)\/(?:build-notice(?:\/status)?|dashboard\/(?:reports|commits|import|setup-link|tags|drive-link))$/.exec(url.pathname);
       if (request.method === 'POST' && releaseRoute) {
         // Each platform has its own credential; neither grants Discord sign-in or cross-platform release access.
         const platform = releaseRoute[1];
@@ -229,8 +235,9 @@ export class Reports {
   constructor(ctx, env) { this.ctx = ctx; this.env = env; }
   async fetch(request) {
     {
-      const body = await request.json();
       const path = new URL(request.url).pathname;
+      if(path.startsWith('/drive/')) return driveObject(request,this.ctx.storage,this.env);
+      const body = await request.json();
       if(path.startsWith('/auth-'))return dashboardAuth(this.ctx.storage,path,body);
       if (path === '/build-notice' || path === '/build-notice-status') return this.buildNotice(body, path === '/build-notice-status');
       const platform = platformOf(body.platform);
@@ -454,6 +461,13 @@ export class Reports {
     // Failed indexing never changes a confirmed report into an uncertain delivery.
   }
   async alarm() {
+    const drive=await this.ctx.storage.get('drive');
+    if(drive){
+      const expires=drive.fileExpires || drive.expires;
+      if(Date.now()<expires){await this.ctx.storage.setAlarm(expires);return;}
+      if(drive.fileKey)await this.env.DRIVE_FILES.delete(drive.fileKey);
+      await this.ctx.storage.delete('drive');return;
+    }
     await this.flushDashboard();
     for(const prefix of ['auth:session:','auth:attempt:']){const entries=await this.ctx.storage.list({prefix});for(const [key,entry] of entries)if(entry.expires<=Date.now())await this.ctx.storage.delete(key);}
     const records = await this.ctx.storage.list({prefix: 'report:'});
