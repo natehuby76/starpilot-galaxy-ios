@@ -1,3 +1,4 @@
+import { browserDiscordCallback, galaxyReportPage } from './galaxy-report.mjs';
 import { diagnosticZip } from './diagnostic-zip.mjs';
 import {claimReview, reviewStorage} from './codex-review.mjs';
 import {driveObject, drivePage, driveDownload, driveInteraction} from './drive-logs.mjs';
@@ -49,6 +50,11 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     try {
+      if (url.pathname === '/report/galaxy' || url.pathname.startsWith('/report/galaxy/') || browserDiscordCallback(url)) {
+        return await galaxyReportPage(request, env, {base: BASE, callback: CALLBACK, discord,
+          submit: body => env.REPORTS.get(env.REPORTS.idFromName(body.user.id)).fetch('https://reports/submit',
+            {method:'POST', body:JSON.stringify({...body, platform:'ios', source:'galaxy'})})});
+      }
       if (url.pathname === '/drive-interactions' && request.method === 'POST') return await driveInteraction(request,env,BASE);
       const ticket=/^\/codex-review\/([a-f0-9]{64})$/.exec(url.pathname);
       if(ticket && request.method==='POST')return claimReview(env,ticket[1]);
@@ -173,7 +179,7 @@ export default {
         if (body.threadID !== undefined && !/^\d{1,20}$/.test(body.threadID)) return json({error:'Invalid report'}, 400);
         if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(body.reference || '') || typeof body.description !== 'string' || !body.description.trim() || body.description.length > 1000 || typeof body.logs !== 'string' || !body.logs.trim()) return json({error: 'Add a short description and diagnostics'}, 400);
         const id = env.REPORTS.idFromName(auth.user.id);
-        return env.REPORTS.get(id).fetch('https://reports/submit', {method: 'POST', body: JSON.stringify({...body, platform, user: auth.user})});
+        return env.REPORTS.get(id).fetch('https://reports/submit', {method: 'POST', body: JSON.stringify({...body, source:undefined, platform, user:auth.user})});
       }
       return json({error: 'Not found'}, 404);
     } catch (error) {
@@ -215,8 +221,8 @@ export function reportTags(env, platform, description) {
 }
 
 // Use only the written description. The diagnostics attachment never goes to the model.
-export async function reportTitle(ai, description, platform = 'ios') {
-  const prefix = platformLabel(platform) + ' — ';
+export async function reportTitle(ai, description, platform = 'ios', source) {
+  const prefix = (source === 'galaxy' ? 'Galaxy' : platformLabel(platform)) + ' — ';
   const fallback = description.trim().split('\n')[0].replace(/[\r\n\x00-\x1f]/g, ' ').trim();
   if (!ai) return (prefix + fallback).slice(0, 100);
   try {
@@ -342,14 +348,14 @@ export class Reports {
       if (reservation) return json(reservation.result, reservation.status);
       await this.ctx.storage.setAlarm(now + 86400000);
       const name = (body.user.global_name || body.user.username).replace(/[\r\n]/g, ' ').slice(0, 80);
-      const title = existingThread?.title || previous?.title || await reportTitle(this.env.AI, body.description, platform);
+      const title = existingThread?.title || previous?.title || await reportTitle(this.env.AI, body.description, platform, body.source);
       const maintainer = reportMaintainer(this.env, platform) || '';
       const recipients = [...new Set([body.user.id, ...(/^\d+$/.test(maintainer) ? [maintainer] : [])])];
       const notify = maintainer && maintainer !== body.user.id && /^\d+$/.test(maintainer) ? `\nFor <@${maintainer}>` : '';
       const payload = {thread_name: title,
         content: `Report from <@${body.user.id}> (${name})${notify}\nReference: ${body.reference}\n\n${body.description}`,
         allowed_mentions: {parse: [], users: recipients},
-        applied_tags: reportTags(this.env, platform, body.description)};
+        applied_tags: reportTags(this.env, platform, body.source === "galaxy" ? "Galaxy " + body.description : body.description)};
       if (existingThread) { delete payload.thread_name; delete payload.applied_tags; webhook.searchParams.set('thread_id', body.threadID); }
       uncertain.title = title;
       // Persist progress only, never diagnostic contents. Unknown outcomes stay blocked.

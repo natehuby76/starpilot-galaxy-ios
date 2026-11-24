@@ -1,0 +1,177 @@
+const PAGE = '/report/galaxy';
+const OAUTH_COOKIE = '__Host-galaxy-discord-oauth';
+const SESSION_COOKIE = '__Host-galaxy-discord-report';
+const STATE_PREFIX = 'galaxy_web_';
+const MAX_ARCHIVE = 8 * 1024 * 1024;
+const UUID = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
+const encode = value => new TextEncoder().encode(value);
+const b64 = bytes => btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
+const unb64 = text => Uint8Array.from(atob(text.replaceAll('-', '+').replaceAll('_', '/')), ch => ch.charCodeAt(0));
+const nonce = () => b64(crypto.getRandomValues(new Uint8Array(32)));
+const escape = value => String(value).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[ch]);
+const cookie = (name, value, age) => name + '=' + value + '; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=' + age;
+
+async function cookieKey(secret, name) {
+  const key = await crypto.subtle.digest('SHA-256', encode(name + '\0' + secret));
+  return crypto.subtle.importKey('raw', key, 'AES-GCM', false, ['encrypt','decrypt']);
+}
+
+async function seal(secret, name, payload) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const data = new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv}, await cookieKey(secret,name), encode(JSON.stringify(payload))));
+  return b64(iv) + '.' + b64(data);
+}
+
+async function openCookie(request, secret, name) {
+  try {
+    const value = request.headers.get('Cookie')?.split(';').map(x => x.trim()).find(x => x.startsWith(name + '='))?.slice(name.length+1);
+    if (!value || value.length > 2048 || !/^[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]+$/.test(value)) return null;
+    const [iv, data] = value.split('.').map(unb64);
+    const decoded = await crypto.subtle.decrypt({name:'AES-GCM',iv}, await cookieKey(secret,name), data);
+    const payload = JSON.parse(new TextDecoder().decode(decoded));
+    return payload.expires > Date.now() ? payload : null;
+  } catch { return null; }
+}
+
+function redirect(url, cookies = []) {
+  const headers = new Headers({'Location':url, 'Cache-Control':'no-store', 'Referrer-Policy':'no-referrer'});
+  for (const value of cookies) headers.append('Set-Cookie', value);
+  return new Response(null, {status:303, headers});
+}
+
+function page({user, error = '', reference = crypto.randomUUID(), description = '', thread, status = 200, cookies = []} = {}) {
+  const headers = new Headers({
+    'Content-Type':'text/html; charset=utf-8', 'Cache-Control':'no-store', 'X-Content-Type-Options':'nosniff',
+    'Referrer-Policy':'same-origin',
+    'Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+  });
+  for (const value of cookies) headers.append('Set-Cookie', value);
+  const message = error ? '<p role="alert" class="error">'+escape(error)+'</p>' : '';
+  let content;
+  if (thread) {
+    content = '<h2>Report sent</h2><p>Reference <code>'+escape(reference)+'</code></p><a class="button" href="'+escape(thread)+'">Open support thread</a>';
+  } else if (!user) {
+    content = '<p>Sign in with Discord to send a report and follow support replies.</p><a class="button" href="'+PAGE+'/sign-in">Sign in with Discord</a>';
+  } else {
+    content = '<p>Signed in as <strong>'+escape(user.global_name || user.username)+'</strong></p>'
+      + '<p>Your description goes to the StarPilot support forum. Your diagnostic ZIP goes to the private support forum.</p>'
+      + '<form method="post" enctype="multipart/form-data"><input type="hidden" name="reference" value="'+escape(reference)+'">'
+      + '<label for="description">What happened?</label><textarea id="description" name="description" rows="5" maxlength="1000" required>'+escape(description)+'</textarea>'
+      + '<label for="attachment">Diagnostic ZIP</label><input type="file" id="attachment" name="attachment" accept=".zip,application/zip" required>'
+      + '<p>Choose the ZIP from Galaxy’s Download ZIP button or StarPilot’s Export logs.</p><button>Send report</button></form>'
+      + '<form method="post" action="'+PAGE+'/sign-out"><button class="secondary">Sign out</button></form>';
+  }
+  return new Response('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+    + '<title>Report a Galaxy issue</title><style>'
+    + ':root{color-scheme:light dark;font:16px system-ui}body{margin:0;background:#141120;color:#f5efff}main{max-width:38rem;margin:auto;padding:2rem 1.2rem 3rem}'
+    + 'h1{line-height:1.15}p{line-height:1.55;color:#d4c8e5}form{display:grid;gap:.65rem;margin:1.2rem 0}label{font-weight:650}'
+    + 'textarea,input{font:inherit;color:inherit}textarea{box-sizing:border-box;width:100%;padding:.75rem;border:1px solid #64557a;border-radius:.6rem;background:#201a2d}input{max-width:100%}'
+    + 'button,.button{justify-self:start;display:inline-block;font:inherit;font-weight:650;padding:.7rem 1rem;border:none;border-radius:.6rem;background:#c7a5ff;color:#1b102a;text-decoration:none;cursor:pointer}'
+    + '.secondary{background:#352847;color:#f5efff}.error{color:#ffb8c9}</style>'
+    + '<main><h1>Report a Galaxy issue</h1>'+message+content+'</main></html>', {status, headers});
+}
+
+async function bounded(body, limit) {
+  if (!body) throw new Error('Missing diagnostics');
+  const reader = body.getReader(), chunks = [];
+  let length = 0;
+  while (true) {
+    const {done,value} = await reader.read();
+    if (done) break;
+    length += value.byteLength;
+    if (length > limit) {
+      await reader.cancel();
+      throw new Error('The diagnostic archive is too large');
+    }
+    chunks.push(value);
+  }
+  return new Uint8Array(await new Blob(chunks).arrayBuffer());
+}
+
+async function diagnosticText(file) {
+  if (!(file instanceof Blob) || file.size < 52 || file.size > MAX_ARCHIVE) throw new Error('Choose a diagnostic ZIP under 8 MB');
+  const data = new Uint8Array(await file.arrayBuffer());
+  const view = new DataView(data.buffer);
+  const end = data.length - 22;
+  if (view.getUint32(0,true) !== 0x04034b50 || view.getUint32(end,true) !== 0x06054b50 ||
+      view.getUint16(end+10,true) !== 1 || view.getUint16(6,true) !== 0) throw new Error('Choose a StarPilot or Galaxy diagnostic ZIP');
+  const method = view.getUint16(8,true), compressed = view.getUint32(18,true), expanded = view.getUint32(22,true);
+  const nameEnd = 30 + view.getUint16(26,true), start = nameEnd + view.getUint16(28,true);
+  const directory = view.getUint32(end+16,true);
+  const name = new TextDecoder().decode(data.subarray(30,nameEnd));
+  if (!['diagnostics.txt','connection-logs.txt'].includes(name) || start + compressed !== directory || expanded > MAX_ARCHIVE ||
+      directory > end - 46 || view.getUint32(directory,true) !== 0x02014b50 || ![0,8].includes(method)) throw new Error('Choose a StarPilot or Galaxy diagnostic ZIP');
+  let bytes = data.subarray(start,directory);
+  if (method === 8) bytes = await bounded(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw')), expanded);
+  if (bytes.length !== expanded) throw new Error('The diagnostic ZIP is incomplete');
+  const text = new TextDecoder('utf-8', {fatal:true}).decode(bytes);
+  if (!text.trim()) throw new Error('The diagnostic ZIP is empty');
+  return text;
+}
+
+export function browserDiscordCallback(url) {
+  return url.pathname === '/auth/discord/callback' && /^galaxy_web_[A-Za-z0-9_-]{43}$/.test(url.searchParams.get('state') || '');
+}
+
+export async function galaxyReportPage(request, env, {base, callback, discord, submit}) {
+  const url = new URL(request.url);
+  const secret = env.DISCORD_CLIENT_SECRET;
+  if (!env.DISCORD_CLIENT_ID || !secret) return page({error:'Discord sign-in is unavailable.',status:503});
+  if (request.method === 'GET' && url.pathname === PAGE + '/sign-in') {
+    const state = STATE_PREFIX + nonce(), verifier = nonce();
+    const challenge = b64(new Uint8Array(await crypto.subtle.digest('SHA-256',encode(verifier))));
+    const target = new URL('https://discord.com/oauth2/authorize');
+    target.search = new URLSearchParams({client_id:env.DISCORD_CLIENT_ID, redirect_uri:callback, response_type:'code', scope:'identify',
+      state, code_challenge:challenge, code_challenge_method:'S256'}).toString();
+    const transaction = await seal(secret,OAUTH_COOKIE,{state,verifier,expires:Date.now()+600000});
+    return redirect(target.href,[cookie(OAUTH_COOKIE,transaction,600)]);
+  }
+  if (request.method === 'GET' && browserDiscordCallback(url)) {
+    const transaction = await openCookie(request,secret,OAUTH_COOKIE);
+    const code = url.searchParams.get('code'), cookies = [cookie(OAUTH_COOKIE,'',0)];
+    if (!transaction || transaction.state !== url.searchParams.get('state') || url.searchParams.get('iss') !== 'https://discord.com' ||
+        !code || code.length > 2048) return page({error:'Discord sign-in couldn’t be completed. Try again.',cookies,status:400});
+    const token = await discord('/oauth2/token',{method:'POST',body:new URLSearchParams({
+      client_id:env.DISCORD_CLIENT_ID, client_secret:secret, grant_type:'authorization_code', code, code_verifier:transaction.verifier, redirect_uri:callback,
+    })});
+    if (!token.ok) return page({error:'Discord sign-in expired or was declined. Try again.',cookies,status:401});
+    const {access_token:accessToken} = await token.json();
+    if (typeof accessToken !== 'string' || !accessToken || accessToken.length > 2048) return page({error:'Discord returned incomplete sign-in details.',cookies,status:401});
+    const identity = await discord('/oauth2/@me',{headers:{Authorization:'Bearer '+accessToken}});
+    if (!identity.ok) return page({error:'Could not verify Discord sign-in. Try again.',cookies,status:401});
+    const auth = await identity.json();
+    if (auth.application?.id !== env.DISCORD_CLIENT_ID || !auth.scopes?.includes('identify') || !/^\d{1,20}$/.test(auth.user?.id || '') ||
+        typeof auth.user.username !== 'string') return page({error:'Invalid Discord authorization.',cookies,status:403});
+    const user = {id:auth.user.id, username:auth.user.username.slice(0,80),
+      global_name:typeof auth.user.global_name === 'string' ? auth.user.global_name.slice(0,80) : ''};
+    const session = await seal(secret,SESSION_COOKIE,{user,expires:Date.now()+3600000});
+    cookies.push(cookie(SESSION_COOKIE,session,3600));
+    return redirect(PAGE,cookies);
+  }
+  const {user} = await openCookie(request,secret,SESSION_COOKIE) || {};
+  if (request.method === 'GET' && url.pathname === PAGE) return page({user});
+  if (request.method !== 'POST' || request.headers.get('Origin') !== base) return page({user,error:'Open the report form to continue.',status:403});
+  if (url.pathname === PAGE + '/sign-out') return redirect(PAGE,[cookie(SESSION_COOKIE,'',0)]);
+  if (url.pathname !== PAGE || !user) return page({error:'Sign in with Discord before sending.',status:401});
+
+  let description = '', reference;
+  try {
+    const type = request.headers.get('Content-Type');
+    if (!type?.startsWith('multipart/form-data;')) throw new Error('Choose a diagnostic ZIP');
+    const content = await bounded(request.body,MAX_ARCHIVE+64*1024);
+    const form = await new Response(content,{headers:{'Content-Type':type}}).formData();
+    description = String(form.get('description') || '').trim().slice(0,1000);
+    reference = String(form.get('reference') || '');
+    if (!description || !UUID.test(reference)) return page({user,description,error:'Add a short description and attach a diagnostic ZIP.',status:400});
+    let logs;
+    try { logs = await diagnosticText(form.get('attachment')); }
+    catch { return page({user,reference,description,error:'Choose an intact StarPilot or Galaxy diagnostic ZIP under 8 MB.',status:400}); }
+    const response = await submit({user,reference,description,logs});
+    const result = await response.json();
+    if (response.ok && result.sent && /^https:\/\/discord\.com\/channels\/\d+\/\d+\/\d+$/.test(result.threadURL || '')) {
+      return page({user,reference,thread:result.threadURL});
+    }
+    return page({user,reference,description,error:result.error || 'Delivery wasn’t confirmed. Check your support threads before resending.',status:response.status});
+  } catch { return page({user,reference,description,error:'Could not process the report. Check the ZIP and try again.',status:400}); }
+}
+
