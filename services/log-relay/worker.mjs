@@ -179,7 +179,7 @@ export default {
         if (body.threadID !== undefined && !/^\d{1,20}$/.test(body.threadID)) return json({error:'Invalid report'}, 400);
         if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(body.reference || '') || typeof body.description !== 'string' || !body.description.trim() || body.description.length > 1000 || typeof body.logs !== 'string' || !body.logs.trim()) return json({error: 'Add a short description and diagnostics'}, 400);
         const id = env.REPORTS.idFromName(auth.user.id);
-        return env.REPORTS.get(id).fetch('https://reports/submit', {method: 'POST', body: JSON.stringify({...body, source:undefined, platform, user:auth.user})});
+        return env.REPORTS.get(id).fetch('https://reports/submit', {method: 'POST', body: JSON.stringify({...body, source:undefined, controllerLog:undefined, platform, user:auth.user})});
       }
       return json({error: 'Not found'}, 404);
     } catch (error) {
@@ -304,7 +304,8 @@ export class Reports {
         let live;try{live=await getReportThread(this.env,body.threadID);}catch{return json({error:'Unable to verify this thread. Please refresh and try again.'},503);}
         if(live.applied_tags.includes(supportTags.Closed)||live.thread_metadata?.archived||live.thread_metadata?.locked)return json({error:'This report is closed or archived. Refresh the thread list or start a new report.'},409);
       }
-      const fingerprint = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify([body.description, body.logs, body.threadID || null]))))].map(b => b.toString(16).padStart(2, '0')).join('');
+      const controllerLog = body.source === 'galaxy' && body.controllerLog === true;
+      const fingerprint = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify([body.description, body.logs, body.threadID || null, ...(controllerLog ? ["controller"] : [])]))))].map(b => b.toString(16).padStart(2, '0')).join('');
       if (previous?.fingerprint && previous.fingerprint !== fingerprint) return json({error: 'Retry the original report without changing its contents.'}, 409);
       const now = Date.now();
       let webhook, privateWebhook;
@@ -328,7 +329,7 @@ export class Reports {
       let attachment;
       if (!previous?.privateURL) {
         try {
-          attachment = platform === 'ios' ? await diagnosticZip(body.logs) :
+          attachment = platform === 'ios' ? await diagnosticZip(body.logs, controllerLog ? 'bluetooth-log.json' : undefined) :
             new Blob([body.logs], {type: 'text/plain;charset=utf-8'});
         } catch {
           return json({error: 'Could not prepare the diagnostics archive. Retry this report.'}, 503);

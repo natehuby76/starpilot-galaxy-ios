@@ -99,14 +99,14 @@ async function diagnosticText(file) {
   const nameEnd = 30 + view.getUint16(26,true), start = nameEnd + view.getUint16(28,true);
   const directory = view.getUint32(end+16,true);
   const name = new TextDecoder().decode(data.subarray(30,nameEnd));
-  if (!['diagnostics.txt','connection-logs.txt'].includes(name) || start + compressed !== directory || expanded > MAX_ARCHIVE ||
+  if (!['diagnostics.txt','connection-logs.txt','bluetooth-log.json'].includes(name) || start + compressed !== directory || expanded > MAX_ARCHIVE ||
       directory > end - 46 || view.getUint32(directory,true) !== 0x02014b50 || ![0,8].includes(method)) throw new Error('Choose a StarPilot or Galaxy diagnostic ZIP');
   let bytes = data.subarray(start,directory);
   if (method === 8) bytes = await bounded(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw')), expanded);
   if (bytes.length !== expanded) throw new Error('The diagnostic ZIP is incomplete');
   const text = new TextDecoder('utf-8', {fatal:true}).decode(bytes);
   if (!text.trim()) throw new Error('The diagnostic ZIP is empty');
-  return text;
+  return {logs:text, ...(name === 'bluetooth-log.json' ? {controllerLog:true} : {})};
 }
 
 export function browserDiscordCallback(url) {
@@ -163,10 +163,10 @@ export async function galaxyReportPage(request, env, {base, callback, discord, s
     description = String(form.get('description') || '').trim().slice(0,1000);
     reference = String(form.get('reference') || '');
     if (!description || !UUID.test(reference)) return page({user,description,error:'Add a short description and attach a diagnostic ZIP.',status:400});
-    let logs;
-    try { logs = await diagnosticText(form.get('attachment')); }
+    let diagnostic;
+    try { diagnostic = await diagnosticText(form.get('attachment')); }
     catch { return page({user,reference,description,error:'Choose an intact StarPilot or Galaxy diagnostic ZIP under 8 MB.',status:400}); }
-    const response = await submit({user,reference,description,logs});
+    const response = await submit({user,reference,description,...diagnostic});
     const result = await response.json();
     if (response.ok && result.sent && /^https:\/\/discord\.com\/channels\/\d+\/\d+\/\d+$/.test(result.threadURL || '')) {
       return page({user,reference,thread:result.threadURL});

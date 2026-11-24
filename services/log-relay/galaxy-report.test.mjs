@@ -66,6 +66,12 @@ test('Galaxy browser OAuth returns to a private report form and submits only the
     assert.match(await sent.text(), /Report sent/);
     assert.deepEqual(sends,[{user:{id:'555',username:'test',global_name:'<Sample>'},reference,
       description:'Local Wi-Fi dropped',logs:'Synthetic Galaxy diagnostics\n'.repeat(100),platform:'ios',source:'galaxy'}]);
+    const controllerLog = '{"externalInputInterfaces":[]}';
+    form.set('attachment',await diagnosticZip(controllerLog, 'bluetooth-log.json'), 'controller.zip');
+    const controllerResult = await open(web,{method:'POST',body:form,headers:{Origin:base,Cookie:session}});
+    assert.equal(controllerResult.status,200);
+    assert.equal(sends[1].logs,controllerLog);
+    assert.equal(sends[1].controllerLog,true);
   } finally { globalThis.fetch = originalFetch; }
 });
 

@@ -4,9 +4,9 @@ const crcTable = Uint32Array.from({ length: 256 }, (_, index) => {
   return crc;
 });
 
-export async function diagnosticZip(text) {
+export async function diagnosticZip(text, filename = 'diagnostics.txt') {
   const encoder = new TextEncoder();
-  const name = encoder.encode('diagnostics.txt');
+  const name = encoder.encode(filename);
   const contents = encoder.encode(text);
   const stream = new Blob([contents]).stream().pipeThrough(new CompressionStream('deflate-raw'));
   const compressed = new Uint8Array(await new Response(stream).arrayBuffer());
