@@ -63,13 +63,14 @@ export default {
         const owner=env.REPORTS.get(env.REPORTS.idFromName('dashboard:'+authRoute[1]));
         return await owner.fetch('https://reports/auth-'+authRoute[2],{method:'POST',body:JSON.stringify({...body,ip:request.headers.get('CF-Connecting-IP')||'unknown'})});
       }
-      const releaseRoute = /^\/v1\/(android|ios)\/(?:build-notice(?:\/status)?|dashboard\/(?:reports|commits|import|setup-link|tags|drive-link|codex-review))$/.exec(url.pathname);
+      const releaseRoute = /^\/v1\/(android|ios)\/(?:build-notice(?:\/status)?|dashboard\/(?:reports|commits|import|setup-link|tags|drive-link|codex-review|review-status|review-worker))$/.exec(url.pathname);
       if (request.method === 'POST' && releaseRoute) {
         // Each platform has its own credential; neither grants Discord sign-in or cross-platform release access.
         const platform = releaseRoute[1];
         const releaseKey = platform === 'android' ? env.ANDROID_RELEASE_KEY : env.IOS_RELEASE_KEY;
         if (!validNonce(releaseKey)) return json({error:platformLabel(platform)+' release access is not configured'}, 503);
         const session=request.headers.get('Authorization')?.startsWith('Session ');
+        if(url.pathname.endsWith('/review-worker')&&(platform!=='ios'||session))return json({error:'Owner access required'},403);
         if(session){
           if(url.pathname.endsWith('/setup-link'))return json({error:'Use owner release access for setup links'},403);
           const verified=await env.REPORTS.get(env.REPORTS.idFromName('dashboard:'+platform)).fetch('https://reports/auth-verify',{method:'POST',body:JSON.stringify({token:request.headers.get('Authorization').slice(8)})});

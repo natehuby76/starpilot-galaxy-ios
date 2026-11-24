@@ -1,4 +1,4 @@
-import {rememberDriveMessage} from './codex-review.mjs';
+import {rememberDriveMessage,webhookMessage} from './codex-review.mjs';
 import { getReportThread, supportTags, supportForum } from './thread-tags.mjs';
 
 const day = 86400000;
@@ -10,13 +10,22 @@ function object(env, token) {
   return namespace.get(namespace.idFromName('drive-log:' + token));
 }
 
-export async function issueDriveLink(env, threadID, origin) {
-  const thread = await getReportThread(env, threadID);
-  if (thread.thread_metadata?.archived || thread.thread_metadata?.locked || thread.applied_tags.includes(supportTags.Closed))
-    return reply({error:'Select an open support thread.'}, 409);
+export async function issueDriveLink(env, threadID, origin, report) {
+  let title;
+  if(!env.DISCORD_BOT_TOKEN && report){
+    const [, , , channel, message]=new URL(report.threadURL).pathname.split('/');
+    if(channel!==threadID)throw Error('Select the original thread.');
+    await webhookMessage(env.DISCORD_WEBHOOK_URL,threadID,message);
+    title=report.title;
+  } else {
+    const thread=await getReportThread(env,threadID);
+    if(thread.thread_metadata?.archived||thread.thread_metadata?.locked||thread.applied_tags.includes(supportTags.Closed))
+      return reply({error:'Select an open support thread.'},409);
+    title=thread.name;
+  }
   const token = hex(crypto.getRandomValues(new Uint8Array(32)));
   const saved = await object(env, token).fetch('https://reports/drive/issue', {
-    method:'POST', body:JSON.stringify({threadID, token, origin, title:thread.name, expires:Date.now()+day, reference:crypto.randomUUID()})
+    method:'POST', body:JSON.stringify({threadID, token, origin, title, expires:Date.now()+day, reference:crypto.randomUUID()})
   });
   if (!saved.ok) return saved;
   return reply({url:origin+'/drive/'+token});
@@ -24,7 +33,7 @@ export async function issueDriveLink(env, threadID, origin) {
 
 export async function sendDriveInvite(env, threadID, token) {
   if (!/^[a-f0-9]{64}$/.test(token)) return reply({error:'Create a link first.'},400);
-  await getReportThread(env,threadID);
+  if(!env.DISCORD_BOT_TOKEN)return reply({error:'Discord posting needs the support bot. Your drive log link is ready to copy.'},503);
   return object(env,token).fetch('https://reports/drive/invite',{method:'POST',body:JSON.stringify({threadID})});
 }
 

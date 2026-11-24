@@ -1,4 +1,4 @@
-import {prepareReview} from './codex-review.mjs';
+import {prepareReview,queueReview,reviewStatus,reviewWorker} from './codex-review.mjs';
 import {issueDriveLink,sendDriveInvite} from './drive-logs.mjs';
 import {getReportThread,nextReportTags,discordTags,supportTags} from './thread-tags.mjs';
 import {dashboardHTML} from './dashboard-ui.mjs';
@@ -10,15 +10,17 @@ export function dashboardPage(){
 export async function dashboardAPI(request,env,platform,readJSON,json){
  const body=await readJSON(request,8192),path=new URL(request.url).pathname;
  const index=env.REPORTS.get(env.REPORTS.idFromName('dashboard:'+platform));
+ if(platform==='ios'&&path.endsWith('/review-worker'))return reviewWorker(env,body);
+ if(platform==='ios'&&path.endsWith('/review-status'))return reviewStatus(env,body.id);
  if(path.endsWith('/codex-review') || path.endsWith('/tags') || path.endsWith('/drive-link')) {
   if(!/^\d{1,20}$/.test(body.userID||'')||typeof body.reference!=='string')return json({error:'Select a report first.'},400);
   const response=await env.REPORTS.get(env.REPORTS.idFromName(body.userID)).fetch('https://reports/dashboard-record',{method:'POST',body:JSON.stringify({platform,userID:body.userID,reference:body.reference})});
   if(!response.ok)return response;
   const record=await response.json(),id=new URL(record.threadURL).pathname.split('/')[3];
   try{
-   if(path.endsWith('/codex-review'))return await prepareReview(env,record,body.chat);
+   if(path.endsWith('/codex-review'))return await (platform==='ios'?queueReview:prepareReview)(env,record,body.chat);
    if(path.endsWith('/drive-link') && body.send===true)return sendDriveInvite(env,id,body.token);
-   if(path.endsWith('/drive-link'))return await issueDriveLink(env,id,new URL(request.url).origin);
+   if(path.endsWith('/drive-link'))return await issueDriveLink(env,id,new URL(request.url).origin,record);
    let thread=await getReportThread(env,id);
    if(body.save===true){
     if(!Array.isArray(body.expected)||JSON.stringify([...thread.applied_tags].sort())!==JSON.stringify([...body.expected].sort()))return json({error:'Tags changed in Discord. Reload tags before saving.'},409);

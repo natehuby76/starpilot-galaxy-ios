@@ -12,7 +12,7 @@ export const dashboardHTML=String.raw`<!doctype html>
 button:active:not(:disabled) { transform: translateY(1px); filter: brightness(1.18) }
 #driveStatus { margin-top: 8px; color: #a9f1cc }
 #driveStatus[data-error] { color: #ffb7b7 }
-#driveStatus:empty { display: none }
+#driveStatus:empty, #reviewStatus:empty { display: none }
 @media (max-width: 700px) {
   header { flex-wrap: wrap; gap: 8px 16px }
   header, main { padding: clamp(10px, 3vw, 18px) }
@@ -32,7 +32,7 @@ button:active:not(:disabled) { transform: translateY(1px); filter: brightness(1.
 <form id="login"><div class="eyebrow">Developer access</div><h1>Your reports. One place.</h1><p class="muted">Choose your platform and sign in. If this is your first visit, use your setup link to choose a password.</p><label for="platform">Platform</label><select id="platform"><option value="ios">iOS</option><option value="android">Android</option></select><label for="key">Password</label><input id="key" type="password" autocomplete="current-password" required minlength="8" maxlength="128"><button class="primary" id="unlock" type="submit">Sign in</button></form>
 <section id="desk" hidden><section id="reportIndex" class="panel"><div class="topline"><h1>Reports</h1><button id="refresh">Refresh reports</button></div><p class="muted" id="reportCount">Loading…</p><label for="search">Find a report</label><input id="search" placeholder="Name, title, reference or thread link"><div id="reportList"></div><button id="more" hidden>Load more</button>
 <details><summary>Bring in an older report</summary><p class="muted">Paste the original Discord report with its reporter mention and reference. The server verifies the stored destination.</p><label for="oldReport">Original report</label><textarea id="oldReport" placeholder="Report from &lt;@…&gt; … Reference: …"></textarea><button id="import">Find and add report</button></details></section>
-<section id="reportDetail" hidden><button id="backReports">← Back to reports</button><h1 id="selectedLabel" tabindex="-1"></h1><div class="grid"><section class="panel"><a id="thread" hidden target="_blank" rel="noopener noreferrer">Open Discord thread ↗</a><button id="driveLink">Create drive log link</button><button id="postDrive">Send link to thread</button><input id="driveURL" readonly hidden aria-label="Drive log submission link"><p id="driveStatus" role="status" aria-live="polite"></p><button id="reviewCodex">Review with Codex</button><details><summary>Codex destination</summary><label for="codexChat">Chat ID or Codex chat link</label><input id="codexChat" autocomplete="off" placeholder="Default chat on this PC"><button id="saveChat">Save destination</button></details><details><summary>Thread tags</summary><button id="loadTags">Load current tags</button><p id="tagMessage" class="muted"></p><div id="tagControls" hidden><label for="tagStatus">Status</label><select id="tagStatus"><option>Open</option><option>In Progress</option><option>Closed</option></select><label class="check"><input type="checkbox" id="tagNavigation">Navigation</label><label class="check"><input type="checkbox" id="tagCarPlay">CarPlay</label><label class="check"><input type="checkbox" id="tagGalaxy">Galaxy</label><button id="saveTags">Save tags</button></div></details><div class="row"><div><label for="version">App version</label><input id="version" placeholder="1.0.6" maxlength="64"></div><div><label for="build">Build number</label><input id="build" placeholder="105" inputmode="numeric" maxlength="10"></div></div><label for="message">Update for this report</label><textarea id="message" maxlength="1200" placeholder="Describe only the changes relevant to this person's issue."></textarea><div class="muted">Avoid promising a fix that hasn't been verified.</div><label class="check"><input id="available" type="checkbox"><span id="availableLabel">I confirmed this reporter can access this build in TestFlight.</span></label><div class="actions"><button id="check">Check delivery status</button><button id="review" class="primary">Review message</button></div><section id="reviewBox" hidden><div class="divider"></div><h3>Message preview</h3><p class="muted" id="previewDestination"></p><div id="preview"></div><button id="send" class="primary">Send to this thread</button><button id="cancel">Back to editing</button></section><div class="notice">A GitHub commit does not prove a build is available. Confirm TestFlight or Android release access before sending. Duplicate notices for the same version, build and thread are blocked.</div></section>
+<section id="reportDetail" hidden><button id="backReports">← Back to reports</button><h1 id="selectedLabel" tabindex="-1"></h1><div class="grid"><section class="panel"><a id="thread" hidden target="_blank" rel="noopener noreferrer">Open Discord thread ↗</a><button id="driveLink">Create drive log link</button><button id="postDrive">Send link to thread</button><input id="driveURL" readonly hidden aria-label="Drive log submission link"><p id="driveStatus" role="status" aria-live="polite"></p><button id="reviewCodex">Review with Codex</button><p id="reviewStatus" role="status" aria-live="polite"></p><details><summary>Codex destination</summary><label for="codexChat">Chat ID or Codex chat link</label><input id="codexChat" autocomplete="off" placeholder="Default chat on this PC"><button id="saveChat">Save destination</button></details><details><summary>Thread tags</summary><button id="loadTags">Load current tags</button><p id="tagMessage" class="muted"></p><div id="tagControls" hidden><label for="tagStatus">Status</label><select id="tagStatus"><option>Open</option><option>In Progress</option><option>Closed</option></select><label class="check"><input type="checkbox" id="tagNavigation">Navigation</label><label class="check"><input type="checkbox" id="tagCarPlay">CarPlay</label><label class="check"><input type="checkbox" id="tagGalaxy">Galaxy</label><button id="saveTags">Save tags</button></div></details><div class="row"><div><label for="version">App version</label><input id="version" placeholder="1.0.6" maxlength="64"></div><div><label for="build">Build number</label><input id="build" placeholder="105" inputmode="numeric" maxlength="10"></div></div><label for="message">Update for this report</label><textarea id="message" maxlength="1200" placeholder="Describe only the changes relevant to this person's issue."></textarea><div class="muted">Avoid promising a fix that hasn't been verified.</div><label class="check"><input id="available" type="checkbox"><span id="availableLabel">I confirmed this reporter can access this build in TestFlight.</span></label><div class="actions"><button id="check">Check delivery status</button><button id="review" class="primary">Review message</button></div><section id="reviewBox" hidden><div class="divider"></div><h3>Message preview</h3><p class="muted" id="previewDestination"></p><div id="preview"></div><button id="send" class="primary">Send to this thread</button><button id="cancel">Back to editing</button></section><div class="notice">A GitHub commit does not prove a build is available. Confirm TestFlight or Android release access before sending. Duplicate notices for the same version, build and thread are blocked.</div></section>
 <aside class="panel github"><h2>GitHub changes</h2><p class="muted" id="repo"></p><p class="muted">Select a commit to start a draft. Edit it to fit the selected report.</p><div id="commitList"></div><button id="useCommit" disabled>Use selected commit summary</button></aside></div></section></section></main><footer>Private diagnostics stay in Discord · No automatic build or tester-group changes</footer>
 <script nonce="{{nonce}}">
 let tagSnapshot=null;
@@ -64,7 +64,7 @@ function selectReport(r,push=true){
   if(push)history.pushState({report:r.reference},'');
   if(selected?.reference!==r.reference){el('message').value='';el('available').checked=false;}
   el('reportIndex').hidden=true;el('reportDetail').hidden=false;status('');window.scrollTo(0,0);
-el("driveURL").hidden=true;el("driveURL").value="";driveStatus('');tagSnapshot=null;el('tagControls').hidden=true;el('tagMessage').textContent='';selected=r;invalidate();el('selectedLabel').textContent=r.reporter+' · '+r.title;el('thread').href=r.threadURL;el('thread').hidden=false;el('selectedLabel').focus({preventScroll:true});}
+el("driveURL").hidden=true;el("driveURL").value="";driveStatus('');el('reviewStatus').textContent='';tagSnapshot=null;el('tagControls').hidden=true;el('tagMessage').textContent='';selected=r;invalidate();el('selectedLabel').textContent=r.reporter+' · '+r.title;el('thread').href=r.threadURL;el('thread').hidden=false;el('selectedLabel').focus({preventScroll:true});}
 function renderReports(){const q=el('search').value.toLowerCase();el('reportList').replaceChildren();el('reportCount').textContent=reports.length+' reports loaded';for(const r of reports.filter(r=>[r.reporter,r.title,r.reference,r.threadURL].join(' ').toLowerCase().includes(q))){const b=document.createElement('button');b.className='report'+(selected?.reference===r.reference&&selected?.userID===r.userID?' active':'');for(const [text,cls] of [[r.reporter,'meta'],[r.title,'title'],[new Date(r.created).toLocaleDateString()+' · '+r.reference.slice(0,8),'meta']]){const span=document.createElement('span');span.textContent=text;span.className=cls;b.append(span);}b.onclick=()=>selectReport(r);el('reportList').append(b);}if(!el('reportList').children.length){const p=document.createElement('p');p.className='notice';p.textContent=reports.length?'No matching reports.':'No reports indexed yet. New reports appear automatically; older reports can be added below.';el('reportList').append(p);}el('more').hidden=!cursor;}
 async function loadReports(more=false){const data=await api('dashboard/reports',{cursor:more?cursor:null});reports=more?reports.concat(data.reports):data.reports;cursor=data.cursor;renderReports();}
 async function loadCommits(){try{let data;try{data=await api('dashboard/commits');}catch{const source=platform==='ios'?{repo:'natehuby76/starpilot-galaxy-ios',branch:'ios-companion-dev'}:{repo:'dirwin31/StarPilotAndroid',branch:'Play-Dev'};const response=await fetch('https://api.github.com/repos/'+source.repo+'/commits?sha='+encodeURIComponent(source.branch)+'&per_page=30',{headers:{Accept:'application/vnd.github+json'},credentials:'omit',referrerPolicy:'no-referrer',redirect:'error',signal:AbortSignal.timeout(15000)});if(!response.ok)throw Error('GitHub is temporarily unavailable. You can still write an update manually.');const rows=await response.json();data={source,commits:rows.filter(c=>/^[a-f0-9]{40}$/.test(c.sha||'')).map(c=>({sha:c.sha,title:String(c.commit?.message||'').split('\n')[0].slice(0,300),date:c.commit?.committer?.date}))};}el('repo').textContent=data.source.repo+' · '+data.source.branch;el('commitList').replaceChildren();for(const c of data.commits){const b=document.createElement('button');b.className='commit';const title=document.createElement('span');title.textContent=c.title;const small=document.createElement('small');small.textContent=c.sha.slice(0,7)+' · '+new Date(c.date).toLocaleDateString();b.append(title,small);b.onclick=()=>{commit=c;el('commitList').querySelectorAll('button').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');el('useCommit').disabled=false;};el('commitList').append(b);}}catch(e){el('repo').textContent=e.message;}}
@@ -114,16 +114,42 @@ el('saveChat').onclick=()=>run(async()=>{
   if(matches?.length!==1)throw Error('Paste a Codex chat ID or a link containing one chat ID.');
   localStorage.setItem('support-codex-chat',matches[0]);el('codexChat').value=matches[0];status('Codex destination saved on this browser.');
 });
-el('reviewCodex').onclick=()=>run(async()=>{
-  if(/Macintosh|iPhone|iPad|iPod/.test(navigator.userAgent)){
-    status('Open this report on the Windows PC where the Codex review helper is installed.');
-    return;
+const reviewStates={
+  queued:'Queued for your Windows PC.',
+  delivering:'Windows PC is delivering the report to Codex…',
+  delivered:'Delivered to Codex.',
+  failed:'Could not deliver the review. Check the destination chat and retry.',
+  unconfirmed:'Delivery could not be confirmed. Check the destination chat before retrying.'
+};
+async function watchReview(report,job){
+  while(selected===report){
+    el('reviewStatus').textContent=reviewStates[job.state];
+    if(!['queued','delivering'].includes(job.state))return;
+    await new Promise(resolve=>setTimeout(resolve,4000));
+    if(selected!==report||!key)return;
+    try {
+      job=await api('dashboard/review-status',{id:job.id});
+    } catch {
+      if(selected===report)el('reviewStatus').textContent='Status check interrupted. The review remains queued on the server.';
+      return;
+    }
   }
+}
+el('reviewCodex').onclick=()=>run(async()=>{
   const r=selected;if(!r)throw Error('Select a report first.');
-  const data=await api('dashboard/codex-review',{userID:r.userID,reference:r.reference,chat:savedChat()});
-  if(selected!==r)return;
-  location.href='starpilot-review://open/'+data.ticket;
-  status('Opening the local Codex review helper. Allow your browser to open it if prompted.');
+  if(platform==='ios')el('reviewStatus').textContent='Queuing review…';
+  try {
+    const data=await api('dashboard/codex-review',{userID:r.userID,reference:r.reference,chat:savedChat()});
+    if(selected!==r)return;
+    if(platform==='ios'){
+      void watchReview(r,data);
+      return;
+    }
+    location.href='starpilot-review://open/'+data.ticket;
+    status('Opening the local Codex review helper. Allow your browser to open it if prompted.');
+  } catch(e) {
+    if(selected===r)el('reviewStatus').textContent=e.message;
+  }
 });
 el('postDrive').onclick=()=>runDrive('postDrive','Sending to Discord…',async(report,body)=>{
   const url=el('driveURL').value||(await api('dashboard/drive-link',body)).url;

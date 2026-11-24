@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {prepareReview,claimReview,reviewStorage} from './codex-review.mjs';
+import {prepareReview,claimReview,reviewStorage,queueReview,reviewWorker,reviewStatus} from './codex-review.mjs';
 
 const record={title:'lost nav',reference:'BC67EAFB-EDB5-4F15-BD20-C1F54B8A62EA',threadURL:'https://discord.com/channels/1/2/3'};
 test('handoff uses the specified chat and can be claimed only once',async t=>{
@@ -29,6 +29,20 @@ test('handoff uses the specified chat and can be claimed only once',async t=>{
     assert.equal(result.entries[0].attachments[0].name,'report.txt');
     assert.equal((await claimReview(env,ticket)).status,410);
   }
+  const chat=crypto.randomUUID();
+  const enqueued=await queueReview(env,record,chat);
+  assert.equal(enqueued.status,202);
+  const queued=await enqueued.json();
+  assert.deepEqual(await (await queueReview(env,record,chat)).json(),queued);
+  assert.deepEqual(await (await reviewStatus(env,queued.id)).json(),queued);
+  const {job}=await (await reviewWorker(env,{action:'claim'})).json();
+  assert.equal(job.id,queued.id);
+  assert.equal((await (await reviewStatus(env,job.id)).json()).state,'delivering');
+  assert.equal((await (await reviewWorker(env,{action:'claim'})).json()).job,null);
+  assert.equal((await (await claimReview(env,job.ticket)).json()).chat,chat);
+  assert.equal((await reviewWorker(env,{action:'finish',id:job.id,lease:crypto.randomUUID(),delivered:true})).status,409);
+  await reviewWorker(env,{action:'finish',id:job.id,lease:job.lease,delivered:true});
+  assert.equal((await (await reviewStatus(env,job.id)).json()).state,'delivered');
   redirect=true;
   const calls=request.mock.callCount();
   await assert.rejects(prepareReview(env,record,''),/unexpected redirect/);

@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 from urllib.parse import urlsplit
 import uuid
@@ -43,6 +44,46 @@ def fetch(url, limit, destination=None, method='GET'):
                     raise ValueError('Attachment exceeds the download limit')
                 output.write(chunk)
         return count
+
+def queue_request(key, body):
+    req = urllib.request.Request(
+        ORIGIN + '/v1/ios/dashboard/review-worker',
+        method='POST', data=json.dumps(body).encode(),
+        headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},
+    )
+    with urllib.request.build_opener(NoRedirect()).open(req,timeout=60) as response:
+        return json.load(response)
+
+
+def run_queue(path):
+    key = json.loads(Path(path).read_text(encoding='utf-8-sig'))['key']
+    ROOT.mkdir(parents=True, exist_ok=True)
+    status_path = ROOT / 'queue-status.json'
+    while True:
+        try:
+            job = queue_request(key, {'action':'claim'})['job']
+            if job:
+                delivered = False
+                try:
+                    review('starpilot-review://open/'+job['ticket'])
+                    delivered = True
+                except Exception as exc:
+                    print('Review failed:', type(exc).__name__,flush=True)
+                receipt = {'action':'finish','id':job['id'],'lease':job['lease'],'delivered':delivered}
+                for attempt in range(3):
+                    try:
+                        queue_request(key,receipt)
+                        break
+                    except (OSError,ValueError):
+                        if attempt==2:
+                            raise
+                        time.sleep(3)
+            status = 'connected'
+        except Exception as exc:
+            status = 'error: '+type(exc).__name__
+        status_path.write_text(json.dumps({'status':status,'at':time.time()}),encoding='utf-8')
+        time.sleep(12)
+
 
 def review(uri):
     match = re.fullmatch(r'starpilot-review://open/([0-9a-f]{64})/?', uri)
@@ -99,9 +140,12 @@ def install(workspace, chat):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--install', nargs=2, metavar=('WORKSPACE','DEFAULT_CHAT'))
+    parser.add_argument('--queue-key-file')
     parser.add_argument('uri', nargs='?')
     args = parser.parse_args()
-    if args.install:
+    if args.queue_key_file:
+        run_queue(args.queue_key_file)
+    elif args.install:
         install(*args.install)
     else:
         try:

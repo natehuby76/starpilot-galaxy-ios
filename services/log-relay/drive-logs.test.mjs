@@ -18,6 +18,7 @@ function fixture(t){
       posts.push({invite:JSON.parse(init.body)});
       return Response.json({id:'456',channel_id:'777'});
     }
+    if(target.pathname==='/api/webhooks/123/public/messages/777')return Response.json({id:'777',channel_id:'777'});
     const priv=target.pathname.endsWith('/private');
     if(init.method!=='POST')return Response.json({guild_id:'1',channel_id:priv?'888':supportForum});
     if(!priv && rejectReceipt){rejectReceipt=false;return new Response('',{status:429});}
@@ -90,4 +91,17 @@ test('bot sends the issued link once to its original thread',async t=>{
   assert.equal(f.posts.length,1);
   assert.ok(f.posts[0].invite.content.includes(url));
   assert.deepEqual(f.posts[0].invite.allowed_mentions.parse,[]);
+});
+
+test('dashboard can issue a link for a saved report without bot access',async t=>{
+  const f=fixture(t);
+  delete f.env.DISCORD_BOT_TOKEN;
+  const report={title:'Test report',threadURL:'https://discord.com/channels/1/777/777'};
+  const response=await issueDriveLink(f.env,'777','https://example.com',report);
+  assert.equal(response.status,200);
+  const {url}=await response.json();
+  const blocked=await sendDriveInvite(f.env,'777',new URL(url).pathname.split('/').pop());
+  assert.equal(blocked.status,503);
+  assert.match((await blocked.json()).error,/Your drive log link is ready to copy/);
+  assert.equal(f.posts.length,0);
 });
