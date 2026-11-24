@@ -439,9 +439,9 @@ test('description topics add tags without changing status or exceeding five tags
  assert.deepEqual(reportTags({...e,CARPLAY_FORUM_TAG_ID:'invalid'},'ios','CarPlay'),['1','2']);
 });
 
-test('bot owns both forum posts, preserves the private reference and resumes after public rejection', async t=>{
+for(const platform of ['ios','android']) test(platform+' bot report pings its maintainer and resumes after public rejection', async t=>{
   const store=storage();
-  const botEnv={...env,DISCORD_BOT_TOKEN:'bot-test',DISCORD_PRIVATE_FORUM:'true'};
+  const botEnv={...env,ANDROID_REPORT_MAINTAINER_ID:'420178305073938433',DISCORD_PUBLIC_KEY:'configured',DISCORD_BOT_TOKEN:'bot-test',DISCORD_PRIVATE_FORUM:'true'};
   const service=new Reports({storage:store},botEnv);
   const posts=[];
   t.mock.method(globalThis,'fetch',async(url,options)=>{
@@ -460,13 +460,16 @@ test('bot owns both forum posts, preserves the private reference and resumes aft
     const fields=JSON.parse(options.body);
     assert.ok(fields.message.content.includes('/333/888/888'));assert.ok(fields.name);
     assert.ok(!fields.message.content.includes(body.logs));
+    const maintainer=platform==='ios'?env.REPORT_MAINTAINER_ID:botEnv.ANDROID_REPORT_MAINTAINER_ID;
+    assert.deepEqual(fields.message.allowed_mentions.users,[body.user.id,maintainer]);
+    assert.ok(fields.message.components[0].components.every(button=>button.custom_id.includes(':'+platform+':')));
     if(posts.length===2)return new Response('',{status:429});
     return Response.json({id:'222',parent_id:'777',message:{id:'222',channel_id:'222'}});
   });
-  assert.equal((await service.fetch(request('/submit',body))).status,503);
-  assert.equal((await service.fetch(request('/submit',body))).status,200);
+  assert.equal((await service.fetch(request('/submit',{...body,platform}))).status,503);
+  assert.equal((await service.fetch(request('/submit',{...body,platform}))).status,200);
   assert.deepEqual(posts,['private','public','public']);
-  const record=await (await service.fetch(request('/dashboard-record',{userID:body.user.id,reference:body.reference,platform:'ios'}))).json();
+  const record=await (await service.fetch(request('/dashboard-record',{userID:body.user.id,reference:body.reference,platform}))).json();
   assert.equal(record.botPublic,true);
   assert.equal(record.botPrivateURL,'https://discord.com/channels/333/888/888');
 });
