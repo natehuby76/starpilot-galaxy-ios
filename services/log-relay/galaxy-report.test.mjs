@@ -84,15 +84,16 @@ test('Galaxy browser OAuth returns to a private report form and submits only the
     const ticket=web+'/fresh/'+'b'.repeat(64);
     assert.match(await (await open(ticket)).text(),/Sign in with Discord/);
     const launch = await (await open(ticket,{headers:{Cookie:session}})).text();
-    assert.match(launch,/Open Galaxy on this comma[\s\S]*<details><summary>Use a different Galaxy address/);
-    for (const [saved, origin] of [[null,'http://127.0.0.1:8082'],['http://192.168.1.9:8082','http://192.168.1.9:8082'],['http://localhost:8082','http://localhost:8082']]) {
-      const controls = {'on-comma':{},address:{},launch:{}};
+    assert.match(launch,/This browser did not receive your Galaxy address.[\s\S]*<details><summary>Use a different Galaxy address/);
+    for (const [saved, origin] of [[null,undefined],['http://192.168.1.9:8082','http://192.168.1.9:8082'],['http://localhost:8082','http://localhost:8082']]) {
+      const controls = {'open-galaxy':{hidden:true},'missing-address':{},address:{},launch:{}};
       let target;
       runInNewContext(launch.match(/<script[^>]*>([\s\S]*?)<\/script>/)[1],{
         URL, document:{getElementById:id=>controls[id]},localStorage:{getItem:()=>saved},location:{assign:url=>{target=url;}}
       });
-      controls['on-comma'].onclick();
-      assert.equal(target,origin+'/#/logs/help/fresh/controller/'+'b'.repeat(64));
+      controls['open-galaxy'].onclick();
+      assert.equal(controls['open-galaxy'].hidden,!origin);
+      assert.equal(target,origin && origin+'/#/logs/help/fresh/controller/'+'b'.repeat(64));
     }
     const archive=Buffer.from(await (await diagnosticZip(controllerLog,'bluetooth-log.json')).arrayBuffer()).toString('base64');
     const capture=new URLSearchParams({archive});

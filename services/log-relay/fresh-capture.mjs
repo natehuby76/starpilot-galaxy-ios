@@ -12,9 +12,9 @@ export async function freshCapturePage({request, user, ticket, token, base, diag
   if (request.method === 'GET') {
     if (!user) return screen(signIn);
     if (user.id !== ticket.userID) return screen('Open this request with the Discord account that filed the report.',403);
-    return screen('<p>'+escape(ticket.title || 'New Galaxy support report')+'</p><button id="on-comma" type="button">Open Galaxy on this comma</button><details><summary>Use a different Galaxy address</summary><form id="launch"><label>Galaxy address<input id="address" required placeholder="192.168.1.17:8082"></label><button>Open address</button><p id="status" role="status"></p></form></details><script nonce="'+nonce+'">'+
+    return screen('<p>'+escape(ticket.title || 'New Galaxy support report')+'</p><button id="open-galaxy" type="button" hidden>Open Galaxy</button><p id="missing-address">This browser did not receive your Galaxy address. If Galaxy is already open in Safari, go back to that tab and start from <strong>Send to Discord support</strong>. You can also use the local Galaxy address shown on your comma.</p><details><summary>Use a different Galaxy address</summary><form id="launch"><label>Galaxy address<input id="address" required placeholder="192.168.1.17:8082"></label><button>Open address</button><p id="status" role="status"></p></form></details><script nonce="'+nonce+'">'+
       `const field=document.getElementById('address');
-      const primary=document.getElementById('on-comma');
+      const primary=document.getElementById('open-galaxy');
       const localAddress=raw=>{
         const url=new URL(raw.includes('://')?raw:'http://'+raw);
         const ip=url.hostname.split('.').map(Number);
@@ -22,20 +22,20 @@ export async function freshCapturePage({request, user, ticket, token, base, diag
         if(!url.port && !raw.includes('://'))url.port='8082';
         return url;
       };
-      const thisComma=new URL('http://127.0.0.1:8082');
-      let destination=thisComma;
+      let destination;
       try {
         const saved=localStorage.getItem('galaxy-local-address');
         if(saved){
-          destination=[thisComma.origin,'http://localhost:8082'].includes(saved)?new URL(saved):localAddress(saved);
-          primary.textContent='Open Galaxy';
+          destination=['http://127.0.0.1:8082','http://localhost:8082'].includes(saved)?new URL(saved):localAddress(saved);
+          primary.hidden=false;
+          document.getElementById('missing-address').hidden=true;
           field.value=destination.origin;
         }
       } catch {}
       const openGalaxy=url=>{
         url.pathname='/';url.search='';url.hash='/logs/help/fresh/${ticket.kind}/${token}';location.assign(url.href);
       };
-      primary.onclick=()=>openGalaxy(destination);
+      primary.onclick=()=>{if(destination)openGalaxy(destination);};
       document.getElementById('launch').onsubmit=e=>{
         e.preventDefault();
         try {
