@@ -1,3 +1,4 @@
+import {rememberDriveMessage} from './codex-review.mjs';
 import { getReportThread, supportTags, supportForum } from './thread-tags.mjs';
 
 const day = 86400000;
@@ -19,6 +20,12 @@ export async function issueDriveLink(env, threadID, origin) {
   });
   if (!saved.ok) return saved;
   return reply({url:origin+'/drive/'+token});
+}
+
+export async function sendDriveInvite(env, threadID, token) {
+  if (!/^[a-f0-9]{64}$/.test(token)) return reply({error:'Create a link first.'},400);
+  await getReportThread(env,threadID);
+  return object(env,token).fetch('https://reports/drive/invite',{method:'POST',body:JSON.stringify({threadID})});
 }
 
 export function driveDownload(env, token, secret) {
@@ -112,6 +119,23 @@ export async function driveObject(request,storage,env) {
   }
   if(!record||record.expires<=Date.now())return reply({error:'This link expired. Request a new one.'},410);
   if(record.done)return action==='/drive/send'?reply({sent:true,reference:record.reference}):reply({error:'Drive logs already received. Reference: '+record.reference},410);
+  if(action==='/drive/invite'){
+    const {threadID}=await request.json();
+    if(threadID!==record.threadID)return reply({error:'Select the original thread.'},409);
+    if(await storage.get('postedInvite'))return reply({sent:true});
+    const thread=await getReportThread(env,threadID);
+    if(thread.thread_metadata?.archived||thread.thread_metadata?.locked||thread.applied_tags.includes(supportTags.Closed))return reply({error:'Thread is closed.'},409);
+    const result=await fetch('https://discord.com/api/v10/channels/'+threadID+'/messages',{
+      method:'POST',headers:{Authorization:'Bot '+env.DISCORD_BOT_TOKEN,'Content-Type':'application/json'},
+      redirect:'manual',signal:AbortSignal.timeout(10000),
+      body:JSON.stringify({content:'Submit your drive logs privately: <'+record.origin+'/drive/'+record.token+'>',allowed_mentions:{parse:[]},nonce:record.token.slice(0,24),enforce_nonce:true})
+    });
+    if(!result.ok)return reply({error:'Discord did not confirm the invitation. Check the thread.'},503);
+    const message=await result.json();
+    if(message.channel_id!==threadID||!/^\d+$/.test(message.id))return reply({error:'Unconfirmed Discord invitation.'},503);
+    await storage.put('postedInvite',message.id);
+    return reply({sent:true});
+  }
   if(action==='/drive/status')return reply({open:true});
   if(action!=='/drive/send')return reply({error:'Unknown action'},404);
   let input;
@@ -155,7 +179,12 @@ export async function driveObject(request,storage,env) {
       const msg=await privatePost.json();
       if(!/^\d+$/.test(msg.id)||!/^\d+$/.test(msg.channel_id)||msg.channel_id===state.threadID)throw Error('Unconfirmed private post');
       state.privateSent=true;
+      state.privateMessage={id:msg.id,channel_id:msg.channel_id};
       await storage.put('drive',state);
+    }
+    if(state.privateMessage){
+      const indexed=await rememberDriveMessage(env,state,state.privateMessage);
+      if(!indexed.ok)throw Error('Private message indexing failed');
     }
     posting=true;
     const receipt=await postWebhook(env.DISCORD_WEBHOOK_URL,state.threadID,{content:'Drive logs received. Reference: '+state.reference,allowed_mentions:{parse:[]}});

@@ -119,7 +119,10 @@ test('GitHub uses only configured platform branches and sanitizes output fields'
 });
 test('dashboard shell has no embedded secrets, no persistent browser key storage, and valid JS',async()=>{
  const response=await worker.fetch(new Request('https://relay/dashboard'),{});assert.equal(response.status,200);assert.ok(response.headers.get('Content-Security-Policy').includes("frame-ancestors 'none'"));
- const html=await response.text();assert.ok(!html.includes('{{nonce}}'));assert.ok(!/localStorage|sessionStorage|innerHTML/.test(html));
+ const html=await response.text();assert.ok(!html.includes('{{nonce}}'));assert.ok(!/sessionStorage|innerHTML/.test(html));
+ const storageCalls=html.match(/localStorage[^;}]*/g)||[];
+ assert.equal(storageCalls.length,3);
+ for(const call of storageCalls)assert.match(call,/^localStorage\.(getItem|removeItem|setItem)\('support-codex-chat'(?:,matches\[0\])?\)/);
  new Function(dashboardHTML.match(/<script nonce="\{\{nonce\}\}">([\s\S]*?)<\/script>/)[1]);
 });
 

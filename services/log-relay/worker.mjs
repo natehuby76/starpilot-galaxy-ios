@@ -1,3 +1,4 @@
+import {claimReview, reviewStorage} from './codex-review.mjs';
 import {driveObject, drivePage, driveDownload, driveInteraction} from './drive-logs.mjs';
 import {filterReportThreads,getReportThread,supportTags} from './thread-tags.mjs';
 import {dashboardAuth} from './dashboard-auth.mjs';
@@ -48,6 +49,8 @@ export default {
     const url = new URL(request.url);
     try {
       if (url.pathname === '/drive-interactions' && request.method === 'POST') return await driveInteraction(request,env,BASE);
+      const ticket=/^\/codex-review\/([a-f0-9]{64})$/.exec(url.pathname);
+      if(ticket && request.method==='POST')return claimReview(env,ticket[1]);
       const file=/^\/drive-file\/([a-f0-9]{64})\/([a-f0-9]{64})$/.exec(url.pathname);
       if(file && request.method==='GET')return driveDownload(env,file[1],file[2]);
       const drive = /^\/drive\/([a-f0-9]{64})$/.exec(url.pathname);
@@ -60,7 +63,7 @@ export default {
         const owner=env.REPORTS.get(env.REPORTS.idFromName('dashboard:'+authRoute[1]));
         return await owner.fetch('https://reports/auth-'+authRoute[2],{method:'POST',body:JSON.stringify({...body,ip:request.headers.get('CF-Connecting-IP')||'unknown'})});
       }
-      const releaseRoute = /^\/v1\/(android|ios)\/(?:build-notice(?:\/status)?|dashboard\/(?:reports|commits|import|setup-link|tags|drive-link))$/.exec(url.pathname);
+      const releaseRoute = /^\/v1\/(android|ios)\/(?:build-notice(?:\/status)?|dashboard\/(?:reports|commits|import|setup-link|tags|drive-link|codex-review))$/.exec(url.pathname);
       if (request.method === 'POST' && releaseRoute) {
         // Each platform has its own credential; neither grants Discord sign-in or cross-platform release access.
         const platform = releaseRoute[1];
@@ -236,6 +239,7 @@ export class Reports {
   async fetch(request) {
     {
       const path = new URL(request.url).pathname;
+      if(path.startsWith('/review/'))return reviewStorage(this.ctx.storage,path.slice(8),await request.json());
       if(path.startsWith('/drive/')) return driveObject(request,this.ctx.storage,this.env);
       const body = await request.json();
       if(path.startsWith('/auth-'))return dashboardAuth(this.ctx.storage,path,body);
@@ -461,6 +465,7 @@ export class Reports {
     // Failed indexing never changes a confirmed report into an uncertain delivery.
   }
   async alarm() {
+    if(await this.ctx.storage.get('reviewTicket')){await this.ctx.storage.delete('reviewTicket');return;}
     const drive=await this.ctx.storage.get('drive');
     if(drive){
       const expires=drive.fileExpires || drive.expires;
