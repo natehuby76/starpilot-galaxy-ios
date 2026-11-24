@@ -1,0 +1,17 @@
+name: Support Desk
+on:
+  push:
+    branches: [drive-log-submissions]
+    paths: ['SupportDesk/**', '.github/workflows/support-desk.yml']
+permissions:
+  contents: read
+jobs:
+  simulator:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen
+      - working-directory: SupportDesk
+        run: |
+          xcodegen generate
+          xcodebuild -project SupportDesk.xcodeproj -scheme SupportDesk -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
