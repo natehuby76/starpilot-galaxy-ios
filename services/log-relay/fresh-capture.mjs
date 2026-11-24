@@ -17,9 +17,26 @@ export async function freshCapturePage({request, user, ticket, token, base, diag
       const code=await issueCode();
       const panel=ticket.kind==='controller'?'Bluetooth':'Networks';
       deviceInstructions = '<p>'+escape(ticket.title)+'</p><p>Your private code expires in 10 minutes.</p><p><strong>'+code.match(/.{4}/g).join(' ')+'</strong></p><p>If the phone app cannot reach Galaxy, use the comma screen or open Galaxy in a browser. For browser access, connect to the same Wi-Fi as the comma or join its hotspot, then open the <strong>Local Galaxy address</strong> shown on the comma.</p><p>In <strong>Galaxy → Galaxy Access &amp; Connections → '+panel+'</strong>. Scroll to <strong>Connection logs</strong> and choose <strong>Send to existing Discord thread</strong>.</p><p>The comma needs internet to find the report and send logs. If it is offline, connect it to Wi-Fi with internet or to your phone’s hotspot.</p><p>Enter the code, tap <strong>Find report</strong>, check the title, then tap <strong>Capture and send</strong>. Only support staff receive the logs.</p>';
+      const offlinePanel=ticket.kind==='controller'
+        ? 'Bluetooth → Get help → Bluetooth Controller Support'
+        : 'Networks → Connection logs';
+      deviceInstructions += '<details><summary>Comma offline? Save a ZIP and send it later</summary><ol><li>On your phone, join the comma’s hotspot or the same Wi-Fi. Open the Local Galaxy address shown on the comma in your browser. Stay on that Wi-Fi even if it has no internet.</li><li>Open <strong>'+offlinePanel+' → Manual ZIP download</strong>. Tap <strong>Capture logs</strong>, then <strong>Download ZIP</strong>. Save the file on your phone.</li><li>Once your phone has internet, reopen <strong>Get my Galaxy code</strong> in the original Discord thread, expand this section, and select the saved ZIP. The comma can stay offline. If the request link expired, ask support for a fresh link in that thread.</li></ol><form id="offline-upload" method="post"><label>Diagnostic ZIP <input id="offline-file" type="file" accept=".zip,application/zip" required></label><input type="hidden" name="archive"><button>Review ZIP for this report</button><p role="status" id="offline-status"></p></form></details>';
+
     }
     return screen(deviceInstructions+(deviceInstructions?'<details><summary>Use Galaxy in a web browser</summary>':'')+'<p>'+escape(ticket.title || 'New Galaxy support report')+'</p><button id="open-galaxy" type="button" hidden>Open Galaxy</button><p id="missing-address">This browser did not receive your Galaxy address. If Galaxy is already open in your browser, go back to that tab and start from <strong>Send to Discord support</strong>. You can also use the local Galaxy address shown on your comma.</p><details><summary>Use a different Galaxy address</summary><form id="launch"><label>Galaxy address<input id="address" required placeholder="192.168.1.17:8082"></label><button>Open address</button><p id="status" role="status"></p></form></details><script nonce="'+nonce+'">'+
       `const field=document.getElementById('address');
+      const upload=document.getElementById('offline-upload');
+      if(upload)upload.onsubmit=async event=>{
+        event.preventDefault();
+        const file=document.getElementById('offline-file').files[0];
+        const status=document.getElementById('offline-status');
+        if(!file||!file.size||file.size>98304){status.textContent='Choose a Galaxy diagnostic ZIP up to 96 KiB.';return;}
+        try{
+          const bytes=new Uint8Array(await file.arrayBuffer());
+          upload.elements.archive.value=btoa(Array.from(bytes,byte=>String.fromCharCode(byte)).join(''));
+          upload.submit();
+        }catch{status.textContent='Could not read the ZIP. Select the downloaded file again.';}
+      };
       const primary=document.getElementById('open-galaxy');
       const localAddress=raw=>{
         const url=new URL(raw.includes('://')?raw:'http://'+raw);
