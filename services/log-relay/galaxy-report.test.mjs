@@ -24,15 +24,16 @@ test('Galaxy browser OAuth returns to a private report form and submits only the
     return Response.json({application:{id:'123'},scopes:['identify'],user:{id:'555',username:'test',global_name:'<Sample>'}});
   };
   const runtime = {...env,REPORTS:{
-    idFromName(id) { assert.equal(id,'555'); return id; },
+    idFromName(id) { assert.ok(id==='555' || id.startsWith('drive-log:')); return id; },
     get() { return {async fetch(path, options) {
+      if(path==='https://reports/drive/fresh')return Response.json({kind:'controller',platform:'android',threadID:'2',reference,userID:owner,title:'Controller report'});
       assert.equal(path,'https://reports/submit');
       sends.push(JSON.parse(options.body));
       return Response.json({sent:true,threadURL:'https://discord.com/channels/1/2/3'});
     }}; },
   }};
   const open = (path, options) => worker.fetch(new Request(base+path,options),runtime);
-  let challenge;
+  let challenge, owner='555';
   try {
     assert.match(await (await open(web)).text(), /Sign in with Discord/);
     const start = await open(web+'/sign-in');
@@ -72,6 +73,25 @@ test('Galaxy browser OAuth returns to a private report form and submits only the
     assert.equal(controllerResult.status,200);
     assert.equal(sends[1].logs,controllerLog);
     assert.equal(sends[1].controllerLog,true);
+    const ticket=web+'/fresh/'+'b'.repeat(64);
+    assert.match(await (await open(ticket)).text(),/Sign in with Discord/);
+    assert.match(await (await open(ticket,{headers:{Cookie:session}})).text(),/Open Galaxy/);
+    const archive=Buffer.from(await (await diagnosticZip(controllerLog,'bluetooth-log.json')).arrayBuffer()).toString('base64');
+    const capture=new URLSearchParams({archive});
+    const post=origin=>open(ticket,{method:'POST',body:capture,headers:{Origin:origin,Cookie:session}});
+    assert.match(await (await post('http://192.168.1.2:8082')).text(),/Send to this report/);
+    assert.equal(sends.length,2);
+    capture.set('confirm','yes');
+    assert.equal((await post('http://192.168.1.2:8082')).status,403);
+    owner='888';
+    assert.equal((await post(base)).status,403);
+    owner='555';
+    capture.set('archive', Buffer.from(await (await diagnosticZip('wrong kind')).arrayBuffer()).toString('base64'));
+    assert.equal((await post(base)).status,400);
+    capture.set('archive',archive);
+    assert.match(await (await post(base)).text(),/Return to your report/);
+    assert.equal(sends.length,3);
+    assert.deepEqual([sends[2].threadID,sends[2].reference,sends[2].platform,sends[2].controllerLog],['2',reference,'android',true]);
   } finally { globalThis.fetch = originalFetch; }
 });
 

@@ -10,7 +10,7 @@ function object(env, token) {
   return namespace.get(namespace.idFromName('drive-log:' + token));
 }
 
-export async function issueDriveLink(env, threadID, origin, report) {
+export async function issueDriveLink(env, threadID, origin, report, kind = "drive") {
   let title;
   if(!env.DISCORD_BOT_TOKEN && report){
     const [, , , channel, message]=new URL(report.threadURL).pathname.split('/');
@@ -25,15 +25,21 @@ export async function issueDriveLink(env, threadID, origin, report) {
   }
   const token = hex(crypto.getRandomValues(new Uint8Array(32)));
   const saved = await object(env, token).fetch('https://reports/drive/issue', {
-    method:'POST', body:JSON.stringify({threadID, token, origin, title, expires:Date.now()+day, reference:crypto.randomUUID()})
+    method:'POST', body:JSON.stringify({threadID, token, origin, title, kind, ...(kind !== "drive" && {userID:report.userID, platform:report.platform}), expires:Date.now()+day, reference:crypto.randomUUID()})
   });
   if (!saved.ok) return saved;
-  return reply({url:origin+'/drive/'+token});
+  return reply({url:origin+(kind === 'drive' ? '/drive/' : '/report/galaxy/fresh/')+token});
 }
 
 export async function sendDriveInvite(env, threadID, token) {
   if (!/^[a-f0-9]{64}$/.test(token)) return reply({error:'Create a link first.'},400);
   return object(env,token).fetch('https://reports/drive/invite',{method:'POST',body:JSON.stringify({threadID})});
+}
+
+export async function freshRequest(env, token) {
+  if (!/^[a-f0-9]{64}$/.test(token)) return null;
+  const response = await object(env, token).fetch('https://reports/drive/fresh');
+  return response.ok ? response.json() : null;
 }
 
 export function driveDownload(env, token, secret) {
@@ -149,7 +155,9 @@ export async function driveObject(request,storage,env) {
     let result;
     try {
       result=await postWebhook(env.DISCORD_WEBHOOK_URL,threadID,{
-        content:'Submit your drive logs privately: <'+record.origin+'/drive/'+record.token+'>',
+        content:['connection','controller'].includes(record.kind)
+          ? 'Please send fresh '+record.kind+' logs for this report. Open this link on a device connected to your comma: <'+record.origin+'/report/galaxy/fresh/'+record.token+'>'
+          : 'Submit your drive logs privately: <'+record.origin+'/drive/'+record.token+'>',
         allowed_mentions:{parse:[]}
       });
     } catch {
@@ -166,6 +174,11 @@ export async function driveObject(request,storage,env) {
     await storage.delete('invitePending');
     return reply({sent:true});
   }
+  if (action === '/drive/fresh' && ['controller','connection'].includes(record.kind)) {
+    const {userID, platform, threadID, reference, title, kind} = record;
+    return reply({userID, platform, threadID, reference, title, kind});
+  }
+  if (record.kind && record.kind !== 'drive') return reply({error:'Open the Galaxy request link.'},400);
   if(action==='/drive/status')return reply({open:true});
   if(action!=='/drive/send')return reply({error:'Unknown action'},404);
   let input;

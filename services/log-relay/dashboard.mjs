@@ -20,7 +20,7 @@ export async function dashboardAPI(request,env,platform,readJSON,json){
   try{
    if(path.endsWith('/codex-review'))return await (platform==='ios'?queueReview:prepareReview)(env,record,body.chat);
    if(path.endsWith('/drive-link') && body.send===true)return sendDriveInvite(env,id,body.token);
-   if(path.endsWith('/drive-link'))return await issueDriveLink(env,id,new URL(request.url).origin,record);
+   if(path.endsWith('/drive-link'))return await issueDriveLink(env,id,new URL(request.url).origin,record,['connection','controller'].includes(body.kind) ? body.kind : 'drive');
    let thread=await getReportThread(env,id);
    if(body.save===true){
     if(!Array.isArray(body.expected)||JSON.stringify([...thread.applied_tags].sort())!==JSON.stringify([...body.expected].sort()))return json({error:'Tags changed in Discord. Reload tags before saving.'},409);

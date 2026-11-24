@@ -53,7 +53,7 @@ export default {
       if (url.pathname === '/report/galaxy' || url.pathname.startsWith('/report/galaxy/') || browserDiscordCallback(url)) {
         return await galaxyReportPage(request, env, {base: BASE, callback: CALLBACK, discord,
           submit: body => env.REPORTS.get(env.REPORTS.idFromName(body.user.id)).fetch('https://reports/submit',
-            {method:'POST', body:JSON.stringify({...body, platform:'ios', source:'galaxy'})})});
+            {method:'POST', body:JSON.stringify({...body, platform:body.platform || 'ios', source:'galaxy'})})});
       }
       if (url.pathname === '/drive-interactions' && request.method === 'POST') return await driveInteraction(request,env,BASE);
       const ticket=/^\/codex-review\/([a-f0-9]{64})$/.exec(url.pathname);
@@ -329,7 +329,7 @@ export class Reports {
       let attachment;
       if (!previous?.privateURL) {
         try {
-          attachment = platform === 'ios' ? await diagnosticZip(body.logs, controllerLog ? 'bluetooth-log.json' : undefined) :
+          attachment = platform === 'ios' || body.source === 'galaxy' ? await diagnosticZip(body.logs, controllerLog ? 'bluetooth-log.json' : undefined) :
             new Blob([body.logs], {type: 'text/plain;charset=utf-8'});
         } catch {
           return json({error: 'Could not prepare the diagnostics archive. Retry this report.'}, 503);
@@ -373,7 +373,7 @@ export class Reports {
       if (privateForum) privatePayload.thread_name = title;
       const form = new FormData();
       form.append('payload_json', JSON.stringify(privatePayload));
-      if (attachment) form.append('files[0]', attachment, `StarPilot-${body.reference}.${platform === 'ios' ? 'zip' : 'txt'}`);
+      if (attachment) form.append('files[0]', attachment, `StarPilot-${body.reference}.${platform === 'ios' || body.source === 'galaxy' ? 'zip' : 'txt'}`);
       webhook.searchParams.set('wait', 'true');
       try {
         if (!uncertain.privateURL) {

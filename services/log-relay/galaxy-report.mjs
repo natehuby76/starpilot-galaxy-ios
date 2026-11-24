@@ -1,3 +1,5 @@
+import {freshRequest} from './drive-logs.mjs';
+import {freshCapturePage} from './fresh-capture.mjs';
 const PAGE = '/report/galaxy';
 const OAUTH_COOKIE = '__Host-galaxy-discord-oauth';
 const SESSION_COOKIE = '__Host-galaxy-discord-report';
@@ -123,7 +125,9 @@ export async function galaxyReportPage(request, env, {base, callback, discord, s
     const target = new URL('https://discord.com/oauth2/authorize');
     target.search = new URLSearchParams({client_id:env.DISCORD_CLIENT_ID, redirect_uri:callback, response_type:'code', scope:'identify',
       state, code_challenge:challenge, code_challenge_method:'S256'}).toString();
-    const transaction = await seal(secret,OAUTH_COOKIE,{state,verifier,expires:Date.now()+600000});
+    const returnPath = url.searchParams.get('return') || PAGE;
+    const next = /^\/report\/galaxy\/fresh\/[a-f0-9]{64}$/.test(returnPath) ? returnPath : PAGE;
+    const transaction = await seal(secret,OAUTH_COOKIE,{state,verifier,next,expires:Date.now()+600000});
     return redirect(target.href,[cookie(OAUTH_COOKIE,transaction,600)]);
   }
   if (request.method === 'GET' && browserDiscordCallback(url)) {
@@ -146,9 +150,15 @@ export async function galaxyReportPage(request, env, {base, callback, discord, s
       global_name:typeof auth.user.global_name === 'string' ? auth.user.global_name.slice(0,80) : ''};
     const session = await seal(secret,SESSION_COOKIE,{user,expires:Date.now()+3600000});
     cookies.push(cookie(SESSION_COOKIE,session,3600));
-    return redirect(PAGE,cookies);
+    return redirect(transaction.next || PAGE,cookies);
   }
   const {user} = await openCookie(request,secret,SESSION_COOKIE) || {};
+  const fresh = /^\/report\/galaxy\/fresh\/([a-f0-9]{64})$/.exec(url.pathname);
+  if (fresh) {
+    const ticket = await freshRequest(env, fresh[1]);
+    if (!ticket) return page({error:'This request has expired. Ask support for a new link.',status:410});
+    return freshCapturePage({request,user,ticket,token:fresh[1],base,diagnosticText,bounded,submit,escape});
+  }
   if (request.method === 'GET' && url.pathname === PAGE) return page({user});
   if (request.method !== 'POST' || request.headers.get('Origin') !== base) return page({user,error:'Open the report form to continue.',status:403});
   if (url.pathname === PAGE + '/sign-out') return redirect(PAGE,[cookie(SESSION_COOKIE,'',0)]);
