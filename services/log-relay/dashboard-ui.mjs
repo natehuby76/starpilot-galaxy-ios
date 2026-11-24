@@ -116,7 +116,7 @@ el('saveChat').onclick=()=>run(async()=>{
 });
 const reviewStates={
   queued:'Queued for your Windows PC.',
-  delivering:'Windows PC is delivering the report to Codex…',
+  delivering:'Windows PC has the report. Waiting for Codex to accept it…',
   delivered:'Delivered to Codex.',
   failed:'Could not deliver the review. Check the destination chat and retry.',
   unconfirmed:'Delivery could not be confirmed. Check the destination chat before retrying.'
