@@ -1,4 +1,4 @@
-import {freshRequest,startGalaxyCapture} from './drive-logs.mjs';
+import {freshRequest,startGalaxyCapture,issueCaptureCode,resolveCaptureCode} from './drive-logs.mjs';
 import {freshCapturePage} from './fresh-capture.mjs';
 const PAGE = '/report/galaxy';
 const MANUAL = PAGE + '/manual';
@@ -157,6 +157,28 @@ export async function galaxyReportPage(request, env, {base, callback, discord, s
     return redirect(transaction.next || PAGE,cookies);
   }
   const {user} = await openCookie(request,secret,SESSION_COOKIE) || {};
+  if (url.pathname === PAGE+'/device') {
+    const error = (message,status) => Response.json({error:message},{status,headers:{'Cache-Control':'no-store'}});
+    if (request.method !== 'POST' || request.headers.get('Content-Type')?.split(';')[0] !== 'application/json') return error('JSON POST required',415);
+    let data;
+    try {data=JSON.parse(new TextDecoder().decode(await bounded(request.body,140000)));} catch {return error('Invalid request',400);}
+    const target = await resolveCaptureCode(env,data?.code);
+    if (!target) return error('Code expired or incorrect. Open the request in Discord for a fresh code.',410);
+    const {ticket,user:reporter}=target;
+    if(data.action==='check') return Response.json({title:ticket.title,kind:ticket.kind},{headers:{'Cache-Control':'no-store'}});
+    if(data.action!=='send' || typeof data.archive!=='string' || data.archive.length>131072) return error('Invalid capture',400);
+    let diagnostic;
+    try {
+      diagnostic=await diagnosticText(new Blob([Uint8Array.from(atob(data.archive),c=>c.charCodeAt(0))]));
+      if(Boolean(diagnostic.controllerLog)!==(ticket.kind==='controller')) throw Error();
+    } catch {return error('Unexpected diagnostic archive',400);}
+    const sent=await submit({user:reporter,platform:ticket.platform,threadID:ticket.threadID,reference:ticket.reference,
+      description:'Fresh '+ticket.kind+' logs requested by support.',...diagnostic});
+    const receipt=await sent.json();
+    if (!sent.ok || !receipt.sent || !new RegExp('^https://discord[.]com/channels/[0-9]+/'+ticket.threadID+'/[0-9]+$').test(receipt.threadURL))
+      return error(receipt.error || 'Delivery could not be confirmed. Check your thread.',sent.ok?502:sent.status);
+    return Response.json({sent:true},{headers:{'Cache-Control':'no-store'}});
+  }
   const start = /^\/report\/galaxy\/new\/(connection|controller)$/.exec(url.pathname);
   if (start) {
     if (request.method === 'GET') {
@@ -173,7 +195,7 @@ export async function galaxyReportPage(request, env, {base, callback, discord, s
   if (fresh) {
     const ticket = await freshRequest(env, fresh[1]);
     if (!ticket) return page({error:'This request has expired. Ask support for a new link.',status:410});
-    return freshCapturePage({request,user,ticket,token:fresh[1],base,diagnosticText,bounded,submit,escape});
+    return freshCapturePage({request,user,ticket,token:fresh[1],base,diagnosticText,bounded,submit,escape,issueCode:()=>issueCaptureCode(env,fresh[1],user)});
   }
   if (request.method === 'GET' && url.pathname === PAGE) {
     return new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Galaxy support</title>

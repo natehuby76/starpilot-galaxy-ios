@@ -44,6 +44,25 @@ export async function startGalaxyCapture(env, origin, userID, kind) {
   return new Response(null,{status:303,headers:{Location:'/report/galaxy/fresh/'+token,'Cache-Control':'no-store'}});
 }
 
+export async function issueCaptureCode(env, token, user) {
+  const alphabet = '0123456789abcdefghjkmnpqrstvwxyz';
+  const code = Array.from(crypto.getRandomValues(new Uint8Array(12)), byte => alphabet[byte & 31]).join('');
+  const result = await object(env, 'code:'+code).fetch('https://reports/drive/issue', {
+    method:'POST', body:JSON.stringify({kind:'support-code', token, user, expires:Date.now()+600000})
+  });
+  if (!result.ok) throw Error('Could not create a support code');
+  return code;
+}
+
+export async function resolveCaptureCode(env, code) {
+  if (typeof code !== 'string' || !/^[0-9a-hjkmnp-tv-z]{12}$/.test(code)) return null;
+  const result = await object(env, 'code:'+code).fetch('https://reports/drive/code');
+  if (!result.ok) return null;
+  const {token,user} = await result.json();
+  const ticket = await freshRequest(env, token);
+  return ticket?.threadID && ticket.userID === user.id ? {ticket,user} : null;
+}
+
 export async function freshRequest(env, token) {
   if (!/^[a-f0-9]{64}$/.test(token)) return null;
   const response = await object(env, token).fetch('https://reports/drive/fresh');
@@ -140,6 +159,7 @@ export async function driveObject(request,storage,env) {
     return new Response(stored.body,{headers:{'Content-Type':'application/octet-stream','Content-Disposition':'attachment; filename="'+record.fileName+'"','Cache-Control':'private, no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff'}});
   }
   if(!record||record.expires<=Date.now())return reply({error:'This link expired. Request a new one.'},410);
+  if(action==='/drive/code' && record.kind==='support-code') return reply({token:record.token,user:record.user});
   if(record.done)return action==='/drive/send'?reply({sent:true,reference:record.reference}):reply({error:'Drive logs already received. Reference: '+record.reference},410);
   if(action==='/drive/invite'){
     const {threadID}=await request.json();

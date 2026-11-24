@@ -1,5 +1,5 @@
 // A Discord request carries only its ticket identifier into the local Galaxy page.
-export async function freshCapturePage({request, user, ticket, token, base, diagnosticText, bounded, submit, escape}) {
+export async function freshCapturePage({request, user, ticket, token, base, diagnosticText, bounded, submit, escape, issueCode}) {
   const path = '/report/galaxy/fresh/' + token;
   const label = ticket.kind === 'controller' ? 'controller' : 'connection';
   const nonce = crypto.randomUUID().replaceAll('-', '');
@@ -12,7 +12,12 @@ export async function freshCapturePage({request, user, ticket, token, base, diag
   if (request.method === 'GET') {
     if (!user) return screen(signIn);
     if (user.id !== ticket.userID) return screen('Open this request with the Discord account that filed the report.',403);
-    return screen('<p>'+escape(ticket.title || 'New Galaxy support report')+'</p><button id="open-galaxy" type="button" hidden>Open Galaxy</button><p id="missing-address">This browser did not receive your Galaxy address. If Galaxy is already open in Safari, go back to that tab and start from <strong>Send to Discord support</strong>. You can also use the local Galaxy address shown on your comma.</p><details><summary>Use a different Galaxy address</summary><form id="launch"><label>Galaxy address<input id="address" required placeholder="192.168.1.17:8082"></label><button>Open address</button><p id="status" role="status"></p></form></details><script nonce="'+nonce+'">'+
+    let deviceInstructions = "";
+    if (ticket.threadID) {
+      const code=await issueCode();
+      deviceInstructions = '<p>'+escape(ticket.title)+'</p><p>In Galaxy on your comma, open <strong>Networks</strong> or <strong>Bluetooth</strong>, then <strong>Send to existing Discord thread</strong>.</p><p>Enter this private code within 10 minutes.</p><p><strong>'+code.match(/.{4}/g).join(' ')+'</strong></p><p>Galaxy will show the report title before you send. Only support staff receive the logs.</p>';
+    }
+    return screen(deviceInstructions+(deviceInstructions?'<details><summary>Use Galaxy in a web browser</summary>':'')+'<p>'+escape(ticket.title || 'New Galaxy support report')+'</p><button id="open-galaxy" type="button" hidden>Open Galaxy</button><p id="missing-address">This browser did not receive your Galaxy address. If Galaxy is already open in Safari, go back to that tab and start from <strong>Send to Discord support</strong>. You can also use the local Galaxy address shown on your comma.</p><details><summary>Use a different Galaxy address</summary><form id="launch"><label>Galaxy address<input id="address" required placeholder="192.168.1.17:8082"></label><button>Open address</button><p id="status" role="status"></p></form></details><script nonce="'+nonce+'">'+
       `const field=document.getElementById('address');
       const primary=document.getElementById('open-galaxy');
       const localAddress=raw=>{
@@ -26,7 +31,7 @@ export async function freshCapturePage({request, user, ticket, token, base, diag
       try {
         const saved=localStorage.getItem('galaxy-local-address');
         if(saved){
-          destination=['http://127.0.0.1:8082','http://localhost:8082'].includes(saved)?new URL(saved):localAddress(saved);
+          destination=localAddress(saved);
           primary.hidden=false;
           document.getElementById('missing-address').hidden=true;
           field.value=destination.origin;
@@ -43,7 +48,7 @@ export async function freshCapturePage({request, user, ticket, token, base, diag
           try {localStorage.setItem('galaxy-local-address',url.origin);} catch {}
           openGalaxy(url);
         } catch {document.getElementById('status').textContent='Enter the local IPv4 address shown on your comma.';}
-      };</script>`);
+      };</script>`+(deviceInstructions?'</details>':''));
   }
   if(request.method !== 'POST') return screen('Open the request link to continue.',405);
   if (!request.headers.get('content-type')?.startsWith('application/x-www-form-urlencoded')) return screen('Unsupported capture format.',415);

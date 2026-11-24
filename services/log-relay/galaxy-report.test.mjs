@@ -26,7 +26,11 @@ test('Galaxy browser OAuth returns to a private report form and submits only the
   };
   const runtime = {...env,REPORTS:{
     idFromName(id) { assert.ok(id==='555' || id.startsWith('drive-log:')); return id; },
-    get() { return {async fetch(path, options) {
+    get(id) { return {async fetch(path, options) {
+      if(id.startsWith('drive-log:code:')){
+        if(path.endsWith('/issue')) {codes.set(id, JSON.parse(options.body));return Response.json({created:true});}
+        return codes.has(id)?Response.json(codes.get(id)):Response.json({}, {status:410});
+      }
       if(path==='https://reports/drive/issue'){newRequest=JSON.parse(options.body);return Response.json({created:true});}
       if(path==='https://reports/drive/fresh')return Response.json(newRequest || {kind:'controller',platform:'android',threadID:'2',reference,userID:owner,title:'Controller report'});
       assert.equal(path,'https://reports/submit');
@@ -35,6 +39,7 @@ test('Galaxy browser OAuth returns to a private report form and submits only the
     }}; },
   }};
   const open = (path, options) => worker.fetch(new Request(base+path,options),runtime);
+  const codes=new Map();
   let challenge, newRequest, owner='555';
   try {
     const landing=await (await open(web)).text();
@@ -84,17 +89,21 @@ test('Galaxy browser OAuth returns to a private report form and submits only the
     const ticket=web+'/fresh/'+'b'.repeat(64);
     assert.match(await (await open(ticket)).text(),/Sign in with Discord/);
     const launch = await (await open(ticket,{headers:{Cookie:session}})).text();
-    assert.match(launch,/This browser did not receive your Galaxy address.[\s\S]*<details><summary>Use a different Galaxy address/);
-    for (const [saved, origin] of [[null,undefined],['http://192.168.1.9:8082','http://192.168.1.9:8082'],['http://localhost:8082','http://localhost:8082']]) {
-      const controls = {'open-galaxy':{hidden:true},'missing-address':{},address:{},launch:{}};
+    assert.match(launch,/Send to existing Discord thread/);
+    for(const [saved,expected] of [['http://127.0.0.1:8082',undefined],['http://192.168.1.9:8082','http://192.168.1.9:8082']]){
+      const controls={'open-galaxy':{hidden:true},'missing-address':{},address:{},launch:{}};
       let target;
-      runInNewContext(launch.match(/<script[^>]*>([\s\S]*?)<\/script>/)[1],{
-        URL, document:{getElementById:id=>controls[id]},localStorage:{getItem:()=>saved},location:{assign:url=>{target=url;}}
-      });
+      runInNewContext(launch.match(/<script[^>]*>([\s\S]*?)<\/script>/)[1],{URL,document:{getElementById:id=>controls[id]},localStorage:{getItem:()=>saved},location:{assign:url=>{target=url;}}});
       controls['open-galaxy'].onclick();
-      assert.equal(controls['open-galaxy'].hidden,!origin);
-      assert.equal(target,origin && origin+'/#/logs/help/fresh/controller/'+'b'.repeat(64));
+      assert.equal(target,expected && expected+'/#/logs/help/fresh/controller/'+'b'.repeat(64));
     }
+    const code=launch.match(/<strong>([a-z0-9]{4}(?: [a-z0-9]{4}){2})<[/]strong>/)[1].replaceAll(' ','');
+    const device=(body)=>open(web+'/device',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    assert.equal((await device({action:'check',code:'0'.repeat(12)})).status,410);
+    assert.deepEqual(await (await device({action:'check',code})).json(),{kind:'controller',title:'Controller report'});
+    owner='888';
+    assert.equal((await device({action:'check',code})).status,410);
+    owner='555';
     const archive=Buffer.from(await (await diagnosticZip(controllerLog,'bluetooth-log.json')).arrayBuffer()).toString('base64');
     const capture=new URLSearchParams({archive});
     const post=origin=>open(ticket,{method:'POST',body:capture,headers:{Origin:origin,Cookie:session}});
@@ -113,6 +122,9 @@ test('Galaxy browser OAuth returns to a private report form and submits only the
     assert.match(await (await post(base)).text(),/Return to your report/);
     assert.equal(sends.length,3);
     assert.deepEqual([sends[2].threadID,sends[2].reference,sends[2].platform,sends[2].controllerLog],['2',reference,'android',true]);
+    assert.equal((await device({action:'send',code,archive:'AAAA'})).status,400);
+    assert.deepEqual(await (await device({action:'send',code,archive,threadID:'999'})).json(),{sent:true});
+    assert.equal(sends.pop().threadID,'2');
     const newPath=web+'/new/connection';
     assert.match(await (await open(newPath)).text(),/Sign in with Discord/);
     const captureStart = await open(newPath,{headers:{Cookie:session}});
