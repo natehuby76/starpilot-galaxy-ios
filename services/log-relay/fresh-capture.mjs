@@ -4,7 +4,7 @@ export async function freshCapturePage({request, user, ticket, token, base, diag
   const label = ticket.kind === 'controller' ? 'controller' : 'connection';
   const nonce = crypto.randomUUID().replaceAll('-', '');
   function screen(content, status = 200) {
-    return new Response('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Send fresh logs</title><style>body{font:1rem/1.55 system-ui;max-width:32rem;margin:8vh auto;padding:1rem}input,button{font:inherit;padding:.5rem}label{display:block}</style><main><h1>Send fresh '+label+' logs</h1>'+content+'</main></html>', {
+    return new Response('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Send fresh logs</title><style>body{font:1rem/1.55 system-ui;max-width:32rem;margin:8vh auto;padding:1rem}input,button{font:inherit;padding:.5rem}label{display:block}details{margin-top:1.25rem;font-size:.875rem}summary{cursor:pointer}</style><main><h1>Send fresh '+label+' logs</h1>'+content+'</main></html>', {
       status, headers:{'Content-Type':'text/html;charset=utf-8','Cache-Control':'no-store','Referrer-Policy':'same-origin','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; script-src 'nonce-"+nonce+"'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"}
     });
   }
@@ -12,20 +12,34 @@ export async function freshCapturePage({request, user, ticket, token, base, diag
   if (request.method === 'GET') {
     if (!user) return screen(signIn);
     if (user.id !== ticket.userID) return screen('Open this request with the Discord account that filed the report.',403);
-    return screen('<p>'+escape(ticket.title || 'New Galaxy support report')+'</p><form id="launch"><label>Local Galaxy address from your comma<input id="address" required placeholder="192.168.1.17:8082"></label><button>Open Galaxy</button></form><p><button id="on-comma" type="button">I’m on the comma screen</button></p><p id="status" role="status"></p><script nonce="'+nonce+'">'+
+    return screen('<p>'+escape(ticket.title || 'New Galaxy support report')+'</p><button id="on-comma" type="button">Open Galaxy on this comma</button><details><summary>Use a different Galaxy address</summary><form id="launch"><label>Galaxy address<input id="address" required placeholder="192.168.1.17:8082"></label><button>Open address</button><p id="status" role="status"></p></form></details><script nonce="'+nonce+'">'+
       `const field=document.getElementById('address');
-      try {field.value=localStorage.getItem('galaxy-local-address')||'';} catch {}
+      const primary=document.getElementById('on-comma');
+      const localAddress=raw=>{
+        const url=new URL(raw.includes('://')?raw:'http://'+raw);
+        const ip=url.hostname.split('.').map(Number);
+        if(!['http:','https:'].includes(url.protocol)||url.username||url.password||ip.length!==4||!ip.every(Number.isInteger)||!(ip[0]===10||ip[0]===192&&ip[1]===168||ip[0]===172&&ip[1]>=16&&ip[1]<=31))throw Error();
+        if(!url.port && !raw.includes('://'))url.port='8082';
+        return url;
+      };
+      const thisComma=new URL('http://127.0.0.1:8082');
+      let destination=thisComma;
+      try {
+        const saved=localStorage.getItem('galaxy-local-address');
+        if(saved){
+          destination=[thisComma.origin,'http://localhost:8082'].includes(saved)?new URL(saved):localAddress(saved);
+          primary.textContent='Open Galaxy';
+          field.value=destination.origin;
+        }
+      } catch {}
       const openGalaxy=url=>{
         url.pathname='/';url.search='';url.hash='/logs/help/fresh/${ticket.kind}/${token}';location.assign(url.href);
       };
-      document.getElementById('on-comma').onclick=()=>openGalaxy(new URL('http://127.0.0.1:8082'));
+      primary.onclick=()=>openGalaxy(destination);
       document.getElementById('launch').onsubmit=e=>{
         e.preventDefault();
         try {
-          const raw=field.value.trim(), url=new URL(raw.includes('://')?raw:'http://'+raw);
-          const ip=url.hostname.split('.').map(Number);
-          if(!['http:','https:'].includes(url.protocol)||url.username||url.password||ip.length!==4||!ip.every(Number.isInteger)||!(ip[0]===10||ip[0]===192&&ip[1]===168||ip[0]===172&&ip[1]>=16&&ip[1]<=31))throw Error();
-          if(!url.port && !raw.includes('://'))url.port='8082';
+          const url=localAddress(field.value.trim());
           try {localStorage.setItem('galaxy-local-address',url.origin);} catch {}
           openGalaxy(url);
         } catch {document.getElementById('status').textContent='Enter the local IPv4 address shown on your comma.';}

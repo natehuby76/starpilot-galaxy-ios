@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {runInNewContext} from 'node:vm';
 import {test} from 'node:test';
 import worker from './worker.mjs';
 import {diagnosticZip} from './diagnostic-zip.mjs';
@@ -82,7 +83,17 @@ test('Galaxy browser OAuth returns to a private report form and submits only the
     assert.equal(sends[1].controllerLog,true);
     const ticket=web+'/fresh/'+'b'.repeat(64);
     assert.match(await (await open(ticket)).text(),/Sign in with Discord/);
-    assert.match(await (await open(ticket,{headers:{Cookie:session}})).text(),/I’m on the comma screen/);
+    const launch = await (await open(ticket,{headers:{Cookie:session}})).text();
+    assert.match(launch,/Open Galaxy on this comma[\s\S]*<details><summary>Use a different Galaxy address/);
+    for (const [saved, origin] of [[null,'http://127.0.0.1:8082'],['http://192.168.1.9:8082','http://192.168.1.9:8082'],['http://localhost:8082','http://localhost:8082']]) {
+      const controls = {'on-comma':{},address:{},launch:{}};
+      let target;
+      runInNewContext(launch.match(/<script[^>]*>([\s\S]*?)<\/script>/)[1],{
+        URL, document:{getElementById:id=>controls[id]},localStorage:{getItem:()=>saved},location:{assign:url=>{target=url;}}
+      });
+      controls['on-comma'].onclick();
+      assert.equal(target,origin+'/#/logs/help/fresh/controller/'+'b'.repeat(64));
+    }
     const archive=Buffer.from(await (await diagnosticZip(controllerLog,'bluetooth-log.json')).arrayBuffer()).toString('base64');
     const capture=new URLSearchParams({archive});
     const post=origin=>open(ticket,{method:'POST',body:capture,headers:{Origin:origin,Cookie:session}});
