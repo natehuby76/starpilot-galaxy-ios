@@ -87,14 +87,14 @@ test('R2 download requires the private download token and expires',async t=>{
   assert.equal((await f.run('/drive/file/'+state.downloadToken)).status,404);
 });
 
-test('support webhook sends the issued link once to its original thread',async t=>{
+test('Companion-Bot sends the drive link once to its original thread',async t=>{
   const f=fixture(t);
   const {url}=await (await issueDriveLink(f.env,'777','https://example.com')).json();
   const token=new URL(url).pathname.split('/').pop();
   assert.equal((await sendDriveInvite(f.env,'777',token)).status,200);
   assert.equal((await sendDriveInvite(f.env,'777',token)).status,200);
   assert.equal(f.posts.length,1);
-  assert.ok(f.posts[0].invite.content.includes(url));
+  assert.equal(f.posts[0].invite.components[0].components[0].url,url);
   assert.deepEqual(f.posts[0].invite.allowed_mentions.parse,[]);
 });
 

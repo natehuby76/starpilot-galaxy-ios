@@ -165,7 +165,7 @@ export async function driveObject(request,storage,env) {
     const {threadID}=await request.json();
     if(threadID!==record.threadID)return reply({error:'Select the original thread.'},409);
     if(await storage.get('postedInvite'))return reply({sent:true});
-    if(!env.DISCORD_WEBHOOK_URL)return reply({error:'Support thread posting is unavailable.'},503);
+    if(!env.DISCORD_BOT_TOKEN && !env.DISCORD_WEBHOOK_URL)return reply({error:'Support thread posting is unavailable.'},503);
     if(env.DISCORD_BOT_TOKEN){
       const thread=await getReportThread(env,threadID);
       if(thread.thread_metadata?.archived||thread.thread_metadata?.locked||thread.applied_tags.includes(supportTags.Closed))
@@ -188,12 +188,12 @@ export async function driveObject(request,storage,env) {
       const content = capture
         ? 'Support requested '+(record.kind === 'controller' ? 'physical controller diagnostics' : 'phone app connection diagnostics')+'. Sign in on your phone to get your code, then enter it on the comma in Galaxy → '+page+' → Connection logs → Send to existing Discord thread.'
         : 'Submit your drive logs privately:';
-      if(capture && env.DISCORD_BOT_TOKEN){
+      if(env.DISCORD_BOT_TOKEN){
         result = await fetch('https://discord.com/api/v10/channels/'+threadID+'/messages',{
           method:'POST',redirect:'manual',signal:AbortSignal.timeout(15000),
           headers:{Authorization:'Bot '+env.DISCORD_BOT_TOKEN,'Content-Type':'application/json'},
           body:JSON.stringify({content,allowed_mentions:{parse:[]},components:[{type:1,components:[
-            {type:2,style:5,label:'Get my Galaxy code',url:link}
+            {type:2,style:5,label:capture ? 'Get my Galaxy code' : 'Submit drive logs',url:link}
           ]}]})
         });
       } else {
