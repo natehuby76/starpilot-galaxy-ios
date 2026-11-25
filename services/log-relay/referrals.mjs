@@ -89,8 +89,11 @@ async function offer(store,env,thread,manual=false){
     });
     if(!reserved)return false;
     const buttons={type:1,components:[['leave','Leave as is',2],['move','Move to Companion Logs',1]].map(([action,label,style])=>({type:2,style,label,custom_id:'refer:'+action+':'+thread.id}))};
-    const card=supportCard('','**Possible '+record.category+' report**\n'+record.evidence+'\n\n[Open driving report]('+urlFor(thread.id)+')',[buttons]);
-    const sent=await botPost(env,env.COMPANION_REVIEW_THREAD_ID,{...card,flags:card.flags|4096,allowed_mentions:{parse:[]},nonce:thread.id,enforce_nonce:true});
+    const reviewers=[...new Set([env.REPORT_MAINTAINER_ID,env.ANDROID_REPORT_MAINTAINER_ID].filter(id))];
+    const text=['**Possible '+record.category+' report**',record.evidence,'','[Open driving report]('+urlFor(thread.id)+')',
+      reviewers.map(user=>'<@'+user+'>').join(' ')].filter(Boolean).join('\n');
+    const card=supportCard('',text,[],[buttons]);
+    const sent=await botPost(env,env.COMPANION_REVIEW_THREAD_ID,{...card,flags:card.flags|4096,allowed_mentions:{parse:[],users:reviewers},nonce:thread.id,enforce_nonce:true});
     if(!sent.ok){if(sent.status>=400&&sent.status<500)await store.delete(key);throw Error('Review delivery unconfirmed');}
     return true;
   }
@@ -168,7 +171,35 @@ async function finishMove(store,env,key,record){
     if(!result.ok)throw Error('Could not register Companion ticket');
     await store.put(key,{...record,state:'moved'});
   }
-  return Response.json({message:'[Open the Companion ticket]('+urlFor(record.destination)+')'});
+  const link='[Open the Companion ticket]('+urlFor(record.destination)+')';
+  if(record.sourceClosed)return Response.json({message:'Driving thread closed. '+link});
+  try{
+    const path='/channels/'+record.source;
+    const thread=await discordTags(env,path);
+    if(thread.id!==record.source || thread.type!==11 || thread.guild_id!==guild || thread.parent_id!==env.DRIVING_FORUM_ID)
+      throw Error('Original driving thread could not be verified.');
+    const forum=await discordTags(env,'/channels/'+thread.parent_id);
+    const tags=forum.available_tags||[];
+    const closed=tags.filter(tag=>tag.name.trim().toLowerCase()==='closed');
+    if(closed.length>1)throw Error('The driving forum has multiple Closed tags.');
+    const patch={archived:true};
+    if(closed.length){
+      const open=tags.filter(tag=>['open','in progress'].includes(tag.name.trim().toLowerCase())).map(tag=>tag.id);
+      const applied=thread.applied_tags.filter(tag=>!open.includes(tag));
+      if(!applied.includes(closed[0].id))applied.push(closed[0].id);
+      if(applied.length>5)throw Error('The driving thread has no room for its Closed tag.');
+      if(applied.length!==thread.applied_tags.length||applied.some(tag=>!thread.applied_tags.includes(tag)))patch.applied_tags=applied;
+    }
+    if(!thread.thread_metadata?.archived || patch.applied_tags){
+      const updated=await discordTags(env,path,patch);
+      if(updated.id!==record.source || !updated.thread_metadata?.archived || (closed.length&&!updated.applied_tags?.includes(closed[0].id)))
+        throw Error('Discord did not confirm the close.');
+    }
+    await store.put(key,{...record,state:'moved',sourceClosed:true});
+    return Response.json({message:'Driving thread closed. '+link});
+  }catch{
+    return Response.json({message:'Companion ticket created. Closing the driving thread could not be confirmed. Check the forum permissions and tags, then choose Move again to retry. '+link});
+  }
 }
 
 export function isReferral(i){
