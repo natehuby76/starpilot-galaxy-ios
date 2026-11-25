@@ -1,3 +1,4 @@
+import {isReferral,referralInteraction} from './referrals.mjs';
 import {galaxyLogSteps} from './galaxy-log-request.mjs';
 import {caseInteraction,reporterButtons} from './case-actions.mjs';
 import {botPost,supportCard,privateCard} from './bot-delivery.mjs';
@@ -325,6 +326,7 @@ export async function driveInteraction(request,env,origin,ctx) {
   const interaction=JSON.parse(raw);
   if(interaction.type===1)return reply({type:1});
   const answer=content=>reply({type:4,data:privateCard(content)});
+  if(isReferral(interaction))return referralInteraction(interaction,env,ctx);
   if([3,5].includes(interaction.type))return caseInteraction(interaction,env,origin,ctx);
   if(interaction.type!==2||interaction.data?.name!=='request-logs')return answer('Unknown command.');
   const staff=[env.REPORT_MAINTAINER_ID,env.ANDROID_REPORT_MAINTAINER_ID].filter(Boolean);

@@ -1,3 +1,4 @@
+import {pollReferrals,referralStore} from './referrals.mjs';
 import {stageStorage} from './staged-report.mjs';
 import {discordTags} from './thread-tags.mjs';
 import {botPost} from './bot-delivery.mjs';
@@ -45,6 +46,10 @@ async function discord(path, options = {}) {
 }
 export default {
   async scheduled(controller, env) {
+    if(controller.cron==='* * * * *'){
+      await pollReferrals(env);
+      return;
+    }
     if(env.DISCORD_PUBLIC_KEY && env.DISCORD_BOT_TOKEN){
       const settings=env.REPORTS.get(env.REPORTS.idFromName('companion-bot-setup'));
       try{await settings.fetch('https://reports/enable-controls',{method:'POST'});}catch{console.warn('Discord report controls setup pending');}
@@ -268,6 +273,12 @@ export class Reports {
   async fetch(request) {
     {
       const path = new URL(request.url).pathname;
+      if(path==='/register-referral'){
+        const thread=await request.json();
+        await this.ctx.storage.put('thread:'+thread.id,thread);
+        return json({ok:true});
+      }
+      if(path.startsWith('/referrals/'))return referralStore(path,request,this.ctx.storage,this.env);
       if(path==='/sage-role'){
         let id=await this.ctx.storage.get('sage-role');
         if(!id){

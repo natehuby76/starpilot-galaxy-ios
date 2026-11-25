@@ -5,7 +5,7 @@ import {issueDriveLink, sendDriveInvite} from './drive-logs.mjs';
 const titles = {
   note:'Additional Report', tags:'Apply tags', working:'Mark in progress', assign:'Assign someone', unassign:'Clear assignment', priority:'Set Priority', status:'Change Status',
   overview:'Report overview', question:'Ask the reporter', testing:'Request User Testing', rename:'Rename Thread', duplicate:'Link Duplicate',
-  connection:'Request App Connection Logs', controller:'Request Controller Logs', starport:'Request StarPort Logs', removeTags:'Remove topic tags'
+  appLogs:'Request Phone App Logs', connection:'Request Comma Connection Logs', controller:'Request Controller Logs', starport:'Request StarPort Logs', removeTags:'Remove topic tags'
 };
 const descriptions={
   overview:'See status, priority, assignment and the latest available diagnostic link privately.',
@@ -15,6 +15,7 @@ const descriptions={
   unassign:'Remove the current assignee.', priority:'Set urgency from 0 (highest) to 5, or clear it.',
   status:'Open, mark in progress, or close and archive the thread.', testing:'Mention the reporter with the build and steps to test.',
   rename:'Update the title people see in the forum.', duplicate:'Link to the original report by thread link or ID.',
+  appLogs:'Ask the reporter for fresh diagnostics from the phone app in this ticket.',
   connection:'Phone app pairing, Bluetooth bridge, Wi-Fi and discovery on the comma.',
   starport:'Request the original StarPort session ZIP for Android Auto troubleshooting.',
   controller:'USB and Bluetooth input inventory for a physical controller.'
@@ -122,6 +123,15 @@ export async function caseAction(storage,env,b){
     await tx.put('case-interactions',[...recent.slice(-99),b.interaction]);return true;
   });
   if(!fresh)return result('This action was already received.');
+  if(action==='appLogs'){
+    const steps=platform==='android'
+      ? 'Open the StarPilot Android app and go to **Debugging options → Report a problem**. If the last report is marked sent, tap **Start another report**. Describe what happened, choose this existing thread, then tap **Send report** and confirm the preview.'
+      : 'Open StarPilot on your iPhone and go to **Settings → Logs & support → Report a problem on Discord**. Describe what happened and tap **Send**. Select this existing thread and tap **Send report**.';
+    const instructions='**Fresh phone app logs requested**\nIf you can, reproduce the issue first. Sign in with the Discord account you used for this ticket.\n\n'+steps+'\n\nSupport staff receive the phone diagnostics privately.';
+    const card=supportCard('<@'+user+'>',instructions,[reporterButtons(user,platform,channel)]);
+    const sent=await botPost(env,channel,{...card,nonce:b.interaction,enforce_nonce:true,allowed_mentions:{parse:[],users:[user]}});
+    return result(sent.ok?'Phone app log instructions sent.':'Could not confirm delivery of the phone app log instructions.');
+  }
   if(['connection','controller','starport'].includes(action)){
     const link=await issueDriveLink(env,channel,b.origin,{userID:user,platform},action);
     const data=await link.json();
