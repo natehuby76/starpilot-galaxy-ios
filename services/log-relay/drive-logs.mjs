@@ -202,13 +202,15 @@ export async function driveObject(request,storage,env) {
         record.kind==='starport' ? '**StarPort / Android Auto logs requested**' : record.kind==='controller' ? '**Physical controller logs requested**' : '**Phone app connection logs requested**',
         'Start here. Tap the button below, sign in with Discord, and copy your code.'
       ].join('\n') : '**Drive logs requested**\nUse the link below to submit the drive logs privately for this report.';
-      const remaining = record.kind==='starport' ? '2. Open **Galaxy → Logs & Diagnostics → StarPort Logs**. Choose **Enter a Discord request code**, paste the code, tap **Find report**, check the title, describe what happened and press **Send StarPort logs**. Only staff receive the ZIP.' : capture ? [
+      const codeSteps = record.kind==='starport' ? '2. Open **Galaxy → Logs & Diagnostics → StarPort Logs**. Choose **Enter a Discord request code**, paste the code, tap **Find report**, check the title, describe what happened and press **Send StarPort logs**. Only staff receive the ZIP.' : capture ? [
         '2. Open Galaxy → Galaxy Access & Connections → '+page+' → Connection logs. Choose **Send to existing Discord thread**.',
         '3. Enter the code, tap **Find report**, then **Capture and send**.',
         '',
         '**App won’t connect?** Use Galaxy on the comma, or open its Local Galaxy address in your phone’s browser on the same Wi-Fi.',
         '**Comma offline?** On your phone, open that local address and go to '+(record.kind==='controller'?'Bluetooth → Get help → Bluetooth Controller Support':'Networks → Connection logs')+' → **Manual ZIP download**. Capture and download the ZIP. Once your phone is online, reopen **Get my Galaxy code** and use the offline ZIP option to send it privately.'
       ].join('\n') : '';
+      const category={starport:'StarPort / Android Auto Support',controller:'Bluetooth Controller Support',connection:'Mobile App Support'}[record.kind];
+      const remaining = capture ? codeSteps+'\n\n**Using the new Galaxy reporting flow?** Open **Logs & Diagnostics → Get help → '+category+'**, describe the issue and tap **Send report**. Sign in, select this thread (**'+String(record.title||'').replace(/[\r\n]/g,' ').slice(0,100)+'**) and press **Post report**.' : codeSteps;
       const reporter=/^\d{1,20}$/.test(record.userID) ? record.userID : null;
       const mention=reporter ? '<@'+reporter+'>' : '';
       const mentions={parse:[],users:reporter?[reporter]:[]};

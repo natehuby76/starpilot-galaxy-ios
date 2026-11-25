@@ -1,3 +1,4 @@
+import {stageStorage} from './staged-report.mjs';
 import {discordTags} from './thread-tags.mjs';
 import {botPost} from './bot-delivery.mjs';
 import { browserDiscordCallback, galaxyReportPage } from './galaxy-report.mjs';
@@ -272,9 +273,10 @@ export class Reports {
         }
         return Response.json({enabled:true});
       }
+      if(path.startsWith('/stage/'))return stageStorage(request,this.ctx.storage,this.env);
       if(path.startsWith('/review/'))return reviewStorage(this.ctx.storage,path.slice(8),await request.json());
       if(path.startsWith('/drive/')) return driveObject(request,this.ctx.storage,this.env);
-      const starportForm=path==='/submit-starport'?await request.formData():null;
+      const starportForm=['/submit-starport','/submit-stage'].includes(path)?await request.formData():null;
       const starportZip=starportForm?.get('archive');
       const body=starportForm?JSON.parse(starportForm.get('metadata')):await request.json();
       if(path==='/case-action')return caseAction(this.ctx.storage,this.env,body);
@@ -382,7 +384,7 @@ export class Reports {
       await this.ctx.storage.setAlarm(now + 86400000);
       const name = (body.user.global_name || body.user.username).replace(/[\r\n]/g, ' ').slice(0, 80);
       const title = existingThread?.title || previous?.title || await reportTitle(this.env.AI, body.description, platform, body.source);
-      const maintainer = reportMaintainer(this.env, starportZip?'android':platform) || '';
+      const maintainer = reportMaintainer(this.env, body.source==='starport'?'android':platform) || '';
       const recipients = [...new Set([body.user.id, ...(/^\d+$/.test(maintainer) ? [maintainer] : [])])];
       const notify = maintainer && maintainer !== body.user.id && /^\d+$/.test(maintainer) ? `\nFor <@${maintainer}>` : '';
       const payload = {thread_name: title,
@@ -408,10 +410,11 @@ export class Reports {
       };
       const privateForum = this.env.DISCORD_PRIVATE_FORUM === 'true';
       const privatePayload = {content: `Diagnostics from <@${body.user.id}> (${name})\nReference: ${body.reference}`, allowed_mentions: {parse: []}};
+      if(path==='/submit-stage' && body.deviceSummary)privatePayload.content+='\n'+body.deviceSummary;
       if (privateForum) privatePayload.thread_name = title;
       const form = new FormData();
       form.append('payload_json', JSON.stringify(privatePayload));
-      if (attachment) form.append('files[0]', attachment, starportZip ? `StarPort-${body.reference}.zip` : `StarPilot-${body.reference}.${platform === 'ios' || body.source === 'galaxy' ? 'zip' : 'txt'}`);
+      if (attachment) form.append('files[0]', attachment, body.source==='starport' ? `StarPort-${body.reference}.zip` : `StarPilot-${body.reference}.${platform === 'ios' || body.source === 'galaxy' ? 'zip' : 'txt'}`);
       webhook.searchParams.set('wait', 'true');
       try {
         if (!uncertain.privateURL) {
@@ -533,6 +536,12 @@ export class Reports {
     // Failed indexing never changes a confirmed report into an uncertain delivery.
   }
   async alarm() {
+    if(await this.ctx.storage.get('stageCleanup')){
+      const state=await this.ctx.storage.get('stage');
+      if(state?.expires>Date.now()){await this.ctx.storage.setAlarm(state.expires);return;}
+      await this.ctx.storage.deleteAll();return;
+    }
+    if(await this.ctx.storage.get('hits')){await this.ctx.storage.deleteAll();return;}
     if(await this.ctx.storage.get('reviewTicket')){await this.ctx.storage.delete('reviewTicket');return;}
     const drive=await this.ctx.storage.get('drive');
     if(drive){

@@ -1,3 +1,4 @@
+import {stageUpload,claimPage} from './staged-report.mjs';
 import {freshRequest,startGalaxyCapture,issueCaptureCode,resolveCaptureCode} from './drive-logs.mjs';
 import {freshCapturePage} from './fresh-capture.mjs';
 const PAGE = '/report/galaxy';
@@ -130,7 +131,7 @@ export async function galaxyReportPage(request, env, {base, callback, discord, s
     target.search = new URLSearchParams({client_id:env.DISCORD_CLIENT_ID, redirect_uri:callback, response_type:'code', scope:'identify',
       state, code_challenge:challenge, code_challenge_method:'S256'}).toString();
     const returnPath = url.searchParams.get('return') || PAGE;
-    const next = returnPath === MANUAL || /^\/report\/galaxy\/(?:(?:fresh|starport-auth)\/[a-f0-9]{64}|new\/(?:connection|controller|starport))$/.test(returnPath) ? returnPath : PAGE;
+    const next = returnPath === MANUAL || /^\/report\/galaxy\/(?:(?:fresh|starport-auth|claim)\/[a-f0-9]{64}|new\/(?:connection|controller|starport))$/.test(returnPath) ? returnPath : PAGE;
     const transaction = await seal(secret,OAUTH_COOKIE,{state,verifier,next,expires:Date.now()+600000});
     return redirect(target.href,[cookie(OAUTH_COOKIE,transaction,600)]);
   }
@@ -157,6 +158,9 @@ export async function galaxyReportPage(request, env, {base, callback, discord, s
     return redirect(transaction.next || PAGE,cookies);
   }
   const {user} = await openCookie(request,secret,SESSION_COOKIE) || {};
+  if(url.pathname===PAGE+'/stage')return stageUpload(request,env,{base,bounded,diagnosticText});
+  const claim=/^\/report\/galaxy\/claim\/([a-f0-9]{64})$/.exec(url.pathname);
+  if(claim)return claimPage(request,env,{base,user,token:claim[1],escape});
   const approvalObject=challenge=>env.REPORTS.get(env.REPORTS.idFromName('drive-log:starport-approval:'+challenge));
   const authorization=/^\/report\/galaxy\/starport-auth\/([a-f0-9]{64})$/.exec(url.pathname);
   if(authorization){
