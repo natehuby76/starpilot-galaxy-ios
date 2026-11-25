@@ -128,8 +128,24 @@ export async function claimPage(request,env,{base,user,token,escape}){
     limited:'Too many reports. Please wait before posting again.',
     delivery:'Delivery could not be confirmed. Check your Discord thread before retrying.',
   };
+  const nonce = crypto.randomUUID();
+  const postingScript = `<script nonce="${nonce}">
+    const form = document.getElementById('post-report');
+    const button = form.querySelector('button');
+    const status = form.querySelector('[role=status]');
+    function setPosting(posting) {
+      button.disabled = posting;
+      button.textContent = posting ? 'Posting report…' : 'Post report';
+      status.textContent = posting ? 'Sending your report to Discord…' : '';
+    }
+    form.addEventListener('submit', event => {
+      if (button.disabled) event.preventDefault();
+      else setPosting(true);
+    });
+    window.addEventListener('pageshow', () => setPosting(false));
+  </script>`;
   function page(contents,status=200){
-    return new Response('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Post Galaxy report</title><style>:root{color-scheme:dark}body{background:#15111e;color:#f6f1ff;font:1rem/1.55 system-ui;margin:0;padding:1rem}main{max-width:32rem;margin:5vh auto;padding:1.5rem;border-radius:1rem;background:#221b30}select,button,a{font:inherit}select,button{display:block;width:100%;padding:.65rem;margin:.7rem 0;border-radius:.65rem}button{background:#d4b7ff;color:#21152d;border:0;font-weight:600}a{color:#dabdff}blockquote{margin:1rem 0;white-space:pre-wrap;overflow-wrap:anywhere}</style><main><h1>Galaxy support</h1>'+contents+'</main>',{status,headers:{...noStore,'Content-Type':'text/html;charset=utf-8','Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'"}});
+    return new Response('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Post Galaxy report</title><style>:root{color-scheme:dark}body{background:#15111e;color:#f6f1ff;font:1rem/1.55 system-ui;margin:0;padding:1rem}main{max-width:32rem;margin:5vh auto;padding:1.5rem;border-radius:1rem;background:#221b30}select,button,a{font:inherit}select,button{display:block;width:100%;padding:.65rem;margin:.7rem 0;border-radius:.65rem}button:disabled{cursor:wait}button:disabled::before{content:"◌";display:inline-block;margin-right:.5em;animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(1turn)}}@media(prefers-reduced-motion:reduce){button:disabled::before{animation:none}}button{background:#d4b7ff;color:#21152d;border:0;font-weight:600}a{color:#dabdff}blockquote{margin:1rem 0;white-space:pre-wrap;overflow-wrap:anywhere}</style><main><h1>Galaxy support</h1>'+contents+'</main>',{status,headers:{...noStore,'Content-Type':'text/html;charset=utf-8','Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-"+nonce+"'; form-action 'self'; frame-ancestors 'none'"}});
   }
   if(!user)return new Response(null,{status:303,headers:{...noStore,Location:root+'/sign-in?return='+encodeURIComponent(path)}});
   const call=(action,data)=>instance(env,token).fetch('https://reports/stage/'+action,{method:'POST',body:JSON.stringify({user,...data})});
@@ -174,5 +190,5 @@ export async function claimPage(request,env,{base,user,token,escape}){
   const banner=Object.hasOwn(notices,notice)?'<p role="status">'+notices[notice]+'</p>':'';
   const newCategory=data.kind==='connection'?(data.phone==='android'?'Android':'iOS'):labels[data.kind];
   const choosePhone=data.kind==='connection' && !data.phone;
-  return page(banner+'<p>Signed in as <strong>'+escape(user.global_name||user.username)+'</strong></p><h2>'+labels[data.kind]+' report</h2><blockquote>'+escape(data.note)+'</blockquote><p>Your note appears in the public support thread. The same diagnostic summary appears in the public and staff threads. Only staff receive the ZIP.</p>'+(data.publicSummary?'<strong>Public diagnostic summary</strong><blockquote>'+escape(data.publicSummary)+'</blockquote>':'')+'<form method="post"><input type="hidden" name="shareSummary" value="'+(data.publicSummary?'full':'0')+'"><input type="hidden" name="confirmation" value="'+confirmation+'"><label>Post to<select name="destination" required>'+(choosePhone?'<option value="" selected disabled>Choose a phone platform or existing thread</option>':'')+'<option value="new">Create a new '+newCategory+' support thread</option>'+(choosePhone?'<option value="new-android">Create a new Android support thread</option>':'')+lists.join('')+'</select></label>'+(lists.includes(null)?'<p>Some threads could not be loaded. Refresh to try again.</p>':'')+'<button>Post report</button></form>');
+  return page(banner+'<p>Signed in as <strong>'+escape(user.global_name||user.username)+'</strong></p><h2>'+labels[data.kind]+' report</h2><blockquote>'+escape(data.note)+'</blockquote><p>Your note appears in the public support thread. The same diagnostic summary appears in the public and staff threads. Only staff receive the ZIP.</p>'+(data.publicSummary?'<strong>Public diagnostic summary</strong><blockquote>'+escape(data.publicSummary)+'</blockquote>':'')+'<form id="post-report" method="post"><input type="hidden" name="shareSummary" value="'+(data.publicSummary?'full':'0')+'"><input type="hidden" name="confirmation" value="'+confirmation+'"><label>Post to<select name="destination" required>'+(choosePhone?'<option value="" selected disabled>Choose a phone platform or existing thread</option>':'')+'<option value="new">Create a new '+newCategory+' support thread</option>'+(choosePhone?'<option value="new-android">Create a new Android support thread</option>':'')+lists.join('')+'</select></label>'+(lists.includes(null)?'<p>Some threads could not be loaded. Refresh to try again.</p>':'')+'<button type="submit">Post report</button><span role="status"></span></form>'+postingScript);
 }
