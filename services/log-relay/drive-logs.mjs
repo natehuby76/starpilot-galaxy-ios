@@ -188,7 +188,7 @@ export async function driveObject(request,storage,env) {
       const page = record.kind === 'controller' ? 'Bluetooth' : 'Networks';
       const link = record.origin+(capture ? '/report/galaxy/fresh/' : '/drive/')+record.token;
       const intro = capture ? [
-        record.kind==='controller' ? '**Bluetooth controller logs requested**' : '**Network logs requested**',
+        record.kind==='controller' ? '**Physical controller logs requested**' : '**Phone app connection logs requested**',
         'Start here. Tap the button below, sign in with Discord, and copy your code.'
       ].join('\n') : '**Drive logs requested**\nUse the link below to submit the drive logs privately for this report.';
       const remaining = capture ? [

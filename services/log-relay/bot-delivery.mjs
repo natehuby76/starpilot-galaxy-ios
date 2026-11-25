@@ -1,7 +1,7 @@
-export function supportCard(mention,text,buttons,inside=[]){
+export function supportCard(mention,text,buttons,inside=[],color=0xf2b134){
   const components=[];
   if(mention) components.push({type:10,content:mention});
-  components.push({type:17,accent_color:0xf2b134,components:[{type:10,content:text},...inside]},...buttons);
+  components.push({type:17,accent_color:color,components:[{type:10,content:text},...inside]},...buttons);
   return {flags:1<<15,components};
 }
 

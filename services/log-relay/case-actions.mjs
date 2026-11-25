@@ -5,8 +5,18 @@ import {issueDriveLink, sendDriveInvite} from './drive-logs.mjs';
 const titles = {
   note:'Additional Report', tags:'Apply tags', working:'Mark in progress', assign:'Assign someone', unassign:'Clear assignment', priority:'Set Priority', status:'Change Status',
   testing:'Request User Testing', rename:'Rename Thread', duplicate:'Link Duplicate',
-  connection:'Request Network Logs', controller:'Request Bluetooth Logs'
+  connection:'Request App Connection Logs', controller:'Request Controller Logs', removeTags:'Remove topic tags'
 };
+const descriptions={
+  tags:'Add topics such as Galaxy, Navigation or CarPlay.', removeTags:'Remove selected topics while keeping the platform and status.',
+  working:'Show that you are actively working on the report.', assign:'Pick and notify the person handling the report.',
+  unassign:'Remove the current assignee.', priority:'Set urgency from 0 (highest) to 5, or clear it.',
+  status:'Open, mark in progress, or close and archive the thread.', testing:'Mention the reporter with the build and steps to test.',
+  rename:'Update the title people see in the forum.', duplicate:'Link to the original report by thread link or ID.',
+  connection:'Phone app pairing, Bluetooth bridge, Wi-Fi and discovery on the comma.',
+  controller:'USB and Bluetooth input inventory for a physical controller.'
+};
+const statusColor={'Open':0x3498db,'In Progress':0xe69b22,'Closed':0x359467};
 const row = component => ({type:1,components:[component]});
 const ephemeral = content => Response.json({type:4,data:{flags:64,content,allowed_mentions:{parse:[]}}});
 const idPattern = /^\d{1,20}$/;
@@ -46,21 +56,22 @@ export async function caseInteraction(i,env,origin,ctx) {
   if(i.type===3 && command==='pick' && action==='assign'){
     return Response.json({type:4,data:{flags:64,components:[row({type:5,custom_id:base+'assign:'+channel,placeholder:'Choose a server member'})]}});
   }
-  if(i.type===3 && command==='pick' && action==='tags'){
+  if(i.type===3 && command==='pick' && ['tags','removeTags'].includes(action)){
     const forum=await discordTags(env,'/channels/'+supportForum);
-    const options=topicTags(forum).map(t=>({label:t.name,value:t.id}));
-    if(!options.length)return ephemeral('No topic tags are configured in this forum.');
-    return Response.json({type:4,data:{flags:64,components:[row({type:3,custom_id:base+'tags:'+channel,placeholder:'Choose tags to add',max_values:Math.min(5,options.length),options})]}});
+    const thread=await getReportThread(env,channel);
+    const options=topicTags(forum).filter(t=>thread.applied_tags.includes(t.id)===(action==='removeTags')).map(t=>({label:t.name,value:t.id}));
+    if(!options.length)return ephemeral('There are no topics available for that action.');
+    return Response.json({type:4,data:{flags:64,components:[row({type:3,custom_id:base+action+':'+channel,placeholder:titles[action],max_values:Math.min(5,options.length),options})]}});
   }
   const choices={priority:['0','1','2','3','4','5','Clear'],status:['Open','In Progress','Closed']};
   if(i.type===3 && command==='pick' && choices[action]){
     return Response.json({type:4,data:{flags:64,components:[row({type:3,custom_id:base+action+':'+channel,placeholder:titles[action],options:choices[action].map(value=>({label:value,value}))})]}});
   }
-  const prompts={feedback:'What did you find or what do you need?',note:'What happened?',testing:'Build and steps to test',rename:'New thread title',duplicate:'Original support thread ID'};
+  const prompts={feedback:'What did you find or what do you need?',note:'What happened?',testing:'Build and steps to test',rename:'New thread title',duplicate:'Original Discord thread link or ID'};
   if(i.type===3 && prompts[action]){
-    return Response.json({type:9,data:{title:titles[action]||'Give feedback',custom_id:base+action+':'+channel,components:[row({type:4,custom_id:'value',label:prompts[action],style:['note','testing','feedback'].includes(action)?2:1,required:true,max_length:action==='rename'?100:action==='duplicate'?20:1500})]}});
+    return Response.json({type:9,data:{title:titles[action]||'Give feedback',custom_id:base+action+':'+channel,components:[row({type:4,custom_id:'value',label:prompts[action],style:['note','testing','feedback'].includes(action)?2:1,required:true,max_length:action==='rename'?100:action==='duplicate'?200:1500})]}});
   }
-  const value=action==='tags'?i.data.values:i.type===5?i.data.components?.[0]?.components?.[0]?.value?.trim():i.data.values?.[0];
+  const value=['tags','removeTags'].includes(action)?i.data.values:i.type===5?i.data.components?.[0]?.components?.[0]?.value?.trim():i.data.values?.[0];
   if(prompts[action] && (!value||i.type!==5) || choices[action]&&!choices[action].includes(value))return ephemeral('Choose a valid value.');
   if(action==='assign'&&(!idPattern.test(value)||!i.data.resolved?.members?.[value]))return ephemeral('Choose a server member.');
   const owner=env.REPORTS.get(env.REPORTS.idFromName(user));
@@ -89,6 +100,10 @@ export async function caseAction(storage,env,b){
   if(!record||record.platform!==platform)return result('This ticket could not be verified.');
   if(['feedback','fulfilled'].includes(action)&&actor!==user)return result('Only the reporter can respond.');
   const thread=await getReportThread(env,channel);
+  const reopening=action==='status'&&value==='Open';
+  if(thread.thread_metadata?.locked)return result('A moderator locked this thread. Unlock it in Discord first.');
+  if((thread.applied_tags.includes(supportTags.Closed)||thread.thread_metadata?.archived)&&!reopening&&!(action==='status'&&value==='Closed'))
+    return result('This report is closed or archived. Staff can use Change Status → Open to resume it.');
   const fresh=await storage.transaction(async tx=>{
     const recent=await tx.get('case-interactions')||[];
     if(recent.includes(b.interaction))return false;
@@ -102,35 +117,37 @@ export async function caseAction(storage,env,b){
     const sent=await sendDriveInvite(env,channel,new URL(data.url).pathname.split('/').pop());
     return result(sent.ok?'Log instructions sent to this thread.':'Could not confirm delivery of the instructions.');
   }
-  let message;
+  let message, nextStatus;
   const patch={};
   if(action==='duplicate'){
-    if(!idPattern.test(value)||channel===value)return result('Choose a different support thread.');
-    await getReportThread(env,value);
-    patch.duplicate=value;
-    message='Duplicate of <#'+value+'>.';
+    const target=/^https:\/\/discord\.com\/channels\/1387432184121393333\/(\d{1,20})(?:\/\d{1,20})?\/?$/.exec(value)?.[1]||value;
+    if(!idPattern.test(target)||channel===target)return result('Choose a different support thread.');
+    await getReportThread(env,target);
+    patch.duplicate=target;
+    message='Duplicate of <#'+target+'>.';
   }else if(action==='rename'){
     await discordTags(env,'/channels/'+channel,{name:value});
     patch.title=value;message='Renamed this report to '+value+'.';
   }else if(action==='assign'||action==='unassign'){
     patch.assignee=action==='assign'?value:null;
     message=patch.assignee?'Assigned to <@'+value+'>.':'Assignment cleared.';
-  }else if(action==='tags'){
+  }else if(action==='tags'||action==='removeTags'){
     const allowed=topicTags(await discordTags(env,'/channels/'+supportForum));
     if(!Array.isArray(value)||!value.length||value.some(id=>!allowed.some(t=>t.id===id)))return result('Reopen Apply tags to see the current choices.');
-    const tags=[...new Set([...thread.applied_tags,...value])];
+    const tags=action==='removeTags'?thread.applied_tags.filter(id=>!value.includes(id)):[...new Set([...thread.applied_tags,...value])];
     if(tags.length>5)return result('Discord allows five tags. Remove a tag or choose fewer.');
     await discordTags(env,'/channels/'+channel,{applied_tags:tags});
-    message='Applied tags: '+allowed.filter(t=>value.includes(t.id)).map(t=>t.name).join(', ')+'.';
+    message=(action==='removeTags'?'Removed topics: ':'Added topics: ')+allowed.filter(t=>value.includes(t.id)).map(t=>t.name).join(', ')+'.';
   }else if(action==='priority'){
     patch.priority=value==='Clear'?null:value;
     message=patch.priority===null?'Priority cleared.':'Priority '+value+' (0 is highest).';
   }else if(action==='status'||action==='working'||action==='fulfilled'){
     const status=action==='fulfilled'?'Closed':action==='working'?'In Progress':value;
+    nextStatus=status;
     const statuses=['Open','In Progress','Closed'].map(name=>supportTags[name]);
     const tags=[...thread.applied_tags.filter(id=>!statuses.includes(id)),supportTags[status]];
     if(tags.length>5)return result('Remove a forum tag to make room for the status.');
-    await discordTags(env,'/channels/'+channel,{applied_tags:tags});
+    await discordTags(env,'/channels/'+channel,{applied_tags:tags,...(reopening&&thread.thread_metadata?.archived?{archived:false}:{})});
     message=action==='fulfilled'?'The reporter marked this request fulfilled.':action==='working'?'<@'+actor+'> is working on this report.':'Status changed to '+status+'.';
   }else if(action==='testing')message='<@'+user+'>';
   else if(action==='feedback')message='Feedback from <@'+actor+'>\n'+value;
@@ -147,7 +164,17 @@ export async function caseAction(storage,env,b){
     delete payload.content;
     Object.assign(payload,supportCard('',message,caseButtons(user,platform)));
   }
+  if(nextStatus){
+    delete payload.content;
+    const controls=nextStatus==='Closed'?[row({type:2,style:2,label:'Staff Actions',custom_id:'case:'+user+':'+platform+':menu:'+channel})]:caseButtons(user,platform);
+    Object.assign(payload,supportCard('','**'+nextStatus+'**\n'+message,controls,[],statusColor[nextStatus]));
+  }
   const post=await botPost(env,channel,payload);
+  if(nextStatus==='Closed'){
+    try{await discordTags(env,'/channels/'+channel,{archived:true});}
+    catch{return result('Tagged Closed, but archiving failed. Check Manage Threads, then choose Closed again.');}
+    return result(post.ok?'Closed and archived. The original thread link still works.':'Closed and archived. Discord did not confirm the status card.');
+  }
   return result(post.ok?'Updated this report.':'Could not confirm the update message. Refresh the thread.');
 }
 

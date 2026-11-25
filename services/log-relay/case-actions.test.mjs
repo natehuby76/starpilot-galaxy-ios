@@ -80,3 +80,29 @@ test('each reporter update puts working staff controls beneath the new card',asy
     assert.equal(post.components[1].components[1].custom_id,'case:1:ios:menu');
   }
 });
+
+test('closing archives after the status card and reopening restores the same thread',async t=>{
+  const data=new Map([['thread:4',{platform:'ios'}]]);
+  const store={get:k=>data.get(k),put:(k,v)=>data.set(k,v),transaction:fn=>fn(store)};
+  const thread={id:'4',type:11,parent_id:supportForum,applied_tags:['42','1565236988913913887'],thread_metadata:{archived:false}};
+  const events=[];
+  t.mock.method(globalThis,'fetch',async(url,options)=>{
+    if(options.method==='PATCH'){
+      const patch=JSON.parse(options.body);
+      if(patch.applied_tags)thread.applied_tags=patch.applied_tags;
+      if('archived' in patch)thread.thread_metadata.archived=patch.archived;
+      events.push(patch);
+    }
+    if(options.method==='POST'){
+      events.push(JSON.parse(options.body).components[0].accent_color);
+      return Response.json({id:'8'});
+    }
+    return Response.json(thread);
+  });
+  const act=(action,value,id)=>caseAction(store,env,{channel:'4',user:'1',platform:'ios',actor:'3',action,value,interaction:id});
+  await act('status','Closed','1');
+  assert.deepEqual(events,[{applied_tags:['42','1565237052524466207']},0x359467,{archived:true}]);
+  assert.match((await (await act('working',null,'2')).json()).message,/closed or archived/);
+  await act('status','Open','3');
+  assert.deepEqual(events.slice(3),[{applied_tags:['42','1565236988913913887'],archived:false},0x3498db]);
+});
