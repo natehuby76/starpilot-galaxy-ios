@@ -539,3 +539,19 @@ test('controller titles and automatic tags are independent of phone platform',as
    assert.deepEqual(reportTags(tags,platform,'test','controller'),['1565236988913913887','888']);
  }
 });
+
+test('Galaxy controller reports mention Di and apply the configured controller tag',async t=>{
+  const config={...env,CONTROLLER_REPORT_MAINTAINER_ID:'420178305073938433',CONTROLLER_FORUM_TAG_ID:'1574995679451943004'};
+  let publicPost;
+  t.mock.method(globalThis,'fetch',async(url,options)=>{
+    const priv=String(url).includes('/456/');
+    if(options.method!=='POST')return Response.json({guild_id:'333',channel_id:priv?'666':'777'});
+    if(!priv)publicPost=JSON.parse(options.body);
+    return Response.json({id:'123',channel_id:priv?'666':'777'});
+  });
+  const owner=new Reports({storage:storage()},config);
+  assert.equal((await owner.fetch(request('/submit',{...body,source:'galaxy',controllerLog:true,platform:'ios'}))).status,200);
+  assert.deepEqual(publicPost.allowed_mentions.users,[body.user.id,config.CONTROLLER_REPORT_MAINTAINER_ID]);
+  assert.ok(publicPost.content.includes('<@'+config.CONTROLLER_REPORT_MAINTAINER_ID+'>'));
+  assert.deepEqual(publicPost.applied_tags,['1565236988913913887',config.CONTROLLER_FORUM_TAG_ID]);
+});

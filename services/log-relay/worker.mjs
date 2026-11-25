@@ -403,7 +403,8 @@ export class Reports {
       await this.ctx.storage.setAlarm(now + 86400000);
       const name = (body.user.global_name || body.user.username).replace(/[\r\n]/g, ' ').slice(0, 80);
       const title = existingThread?.title || previous?.title || await reportTitle(this.env.AI, body.description, platform, controllerLog?'controller':body.source);
-      const maintainer = reportMaintainer(this.env, body.source==='starport'?'android':platform) || '';
+      const maintainer = (controllerLog || (existingThread && storedReportKind(existingThread)==='controller'))
+        ? this.env.CONTROLLER_REPORT_MAINTAINER_ID : reportMaintainer(this.env, body.source==='starport'?'android':platform);
       const recipients = [...new Set([body.user.id, ...(/^\d+$/.test(maintainer) ? [maintainer] : [])])];
       const notify = maintainer && maintainer !== body.user.id && /^\d+$/.test(maintainer) ? `\nFor <@${maintainer}>` : '';
       const payload = {thread_name: title,
@@ -497,7 +498,7 @@ export class Reports {
     if (!notice.ready) return json({state:'not_ready'});
     if (previous && previous.state !== 'rate_limited') return json({state:previous.state});
     if (previous?.retryAt > Date.now()) return json({state:'rate_limited'});
-    const maintainer = reportMaintainer(this.env, platform);
+    const maintainer = storedReportKind(thread)==='controller' ? this.env.CONTROLLER_REPORT_MAINTAINER_ID : reportMaintainer(this.env, platform);
     if (!/^\d{1,20}$/.test(maintainer || '')) return json({state:'maintainer_not_configured'}, 503);
     let webhook;
     try {
