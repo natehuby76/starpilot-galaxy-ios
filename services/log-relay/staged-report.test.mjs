@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import worker,{Reports} from './worker.mjs';
-import {claimPage} from './staged-report.mjs';
+import {claimPage,publicCaptureSummary} from './staged-report.mjs';
 import {diagnosticZip} from './diagnostic-zip.mjs';
 
 const base='https://starpilot-log-relay.nathan-g-hubbard.workers.dev';
@@ -126,4 +126,12 @@ test('hardware reports ignore the comma phone label, including existing staged c
    assert.ok(html.includes('Create a new '+category+' support thread'));
    assert.equal(html.includes('Create a new iOS support thread'),category==='iOS');
  }
+});
+
+test('public diagnostics omit identifiers and free text for all three captures',()=>{
+  const text='Device abc12345\nHead unit: My private Bluetooth name\nSetup: adapter / private profile\nHandshake: standard (advanced) > other_reply (worked)\nRepo personal/fork · Branch personal @ abc1234567';
+  assert.equal(publicCaptureSummary('starport',text),'Setup: adapter\nLast handshake outcome: worked\nCommit: abc1234567');
+  assert.equal(publicCaptureSummary('connection','Device abc12345\nBluetooth bridge: active\nBonjour advertiser: active <@123>'),'Bluetooth bridge: active');
+  assert.equal(publicCaptureSummary('controller','External input interfaces: 3\nEligible: 1 | Filtered: 2 | Duplicate identity: 0\nsecret'),'External input interfaces: 3\nEligible: 1 | Filtered: 2 | Duplicate identity: 0');
+  assert.equal(publicCaptureSummary('connection'), '');
 });

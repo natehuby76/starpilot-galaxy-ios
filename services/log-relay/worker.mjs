@@ -408,6 +408,7 @@ export class Reports {
         content: `Report from <@${body.user.id}> (${name})${notify}\nReference: ${body.reference}\n\n${body.description}`,
         allowed_mentions: {parse: [], users: recipients},
         applied_tags: path === '/submit-stage' ? galaxyReportTags(this.env, reportKind, platform) : reportTags(this.env, platform, body.source === "galaxy" ? "Galaxy " + body.description : body.description,reportKind)};
+      if (path === '/submit-stage' && body.publicSummary) payload.content += '\n\n**Galaxy diagnostics**\n' + body.publicSummary;
       if(this.env.DISCORD_BOT_TOKEN && this.env.DISCORD_PUBLIC_KEY){
         payload.components=caseButtons(body.user.id,platform);
       }
