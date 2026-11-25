@@ -222,6 +222,7 @@ export function buildNotifications(env) {
 // Classify only the reporter's description, never private diagnostic contents.
 // Status transitions remain manual; follow-ups preserve the thread's existing tags.
 export function reportTags(env, platform, description, kind) {
+  if(kind==='starport')return galaxyReportTags(env,kind,platform);
   if(kind==='controller')return [supportTags.Open,...(/^\d+$/.test(env.CONTROLLER_FORUM_TAG_ID||'')?[env.CONTROLLER_FORUM_TAG_ID]:[])];
   const configured = platform === 'android' ? env.ANDROID_FORUM_TAG_IDS : env.IOS_FORUM_TAG_IDS ?? env.FORUM_TAG_IDS;
   const tags = (configured || '').split(',').map(s => s.trim()).filter(s => /^\d+$/.test(s));

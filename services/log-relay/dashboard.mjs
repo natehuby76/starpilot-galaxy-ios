@@ -36,7 +36,9 @@ export async function dashboardAPI(request,env,platform,readJSON,json){
    if(body.save===true){
     if(!Array.isArray(body.expected)||JSON.stringify([...thread.applied_tags].sort())!==JSON.stringify([...body.expected].sort()))return json({error:'Tags changed in Discord. Reload tags before saving.'},409);
     if(thread.thread_metadata?.archived)return json({error:'Unarchive this thread in Discord before changing tags.'},409);
-    const tags=nextReportTags(thread.applied_tags,platform,body.status,body.topics);
+    const accessory=[env.STARPORT_FORUM_TAG_ID,env.CONTROLLER_FORUM_TAG_ID].some(tag=>thread.applied_tags.includes(tag))
+      || ['starport','controller'].includes(record.reportKind) || /^(?:[^\w]*)(?:StarPort|Bluetooth controller) — /i.test(thread.name||'');
+    const tags=nextReportTags(thread.applied_tags,accessory?null:platform,body.status,body.topics);
     thread=await discordTags(env,'/channels/'+id,{applied_tags:tags});
     if(JSON.stringify([...(thread.applied_tags||[])].sort())!==JSON.stringify([...tags].sort()))throw Error('Tag update was not confirmed. Reload tags.');
    }
