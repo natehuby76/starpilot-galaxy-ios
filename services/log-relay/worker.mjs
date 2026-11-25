@@ -424,7 +424,6 @@ export class Reports {
         applied_tags: reportTags(this.env, platform, body.source === "galaxy" ? "Galaxy " + body.description : body.description,reportKind)};
       if(this.env.DISCORD_BOT_TOKEN && this.env.DISCORD_PUBLIC_KEY){
         payload.components=caseButtons(body.user.id,platform);
-        if(!existingThread)payload.content+='\n\nOpen Staff Actions to apply tags, mark this report in progress, or assign someone.';
       }
       if (existingThread) { delete payload.thread_name; delete payload.applied_tags; webhook.searchParams.set('thread_id', body.threadID); }
       uncertain.title = title;
