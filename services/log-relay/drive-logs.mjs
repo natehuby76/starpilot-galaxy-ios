@@ -1,5 +1,5 @@
 import {caseInteraction,reporterButtons} from './case-actions.mjs';
-import {botPost,supportCard} from './bot-delivery.mjs';
+import {botPost,supportCard,privateCard} from './bot-delivery.mjs';
 import {rememberDriveMessage,webhookMessage} from './codex-review.mjs';
 import { getReportThread, supportTags, supportForum } from './thread-tags.mjs';
 
@@ -332,7 +332,7 @@ export async function driveInteraction(request,env,origin,ctx) {
   if(!await crypto.subtle.verify('Ed25519',signer,bytes(sig),new TextEncoder().encode(ts+raw)))return reply({error:'Invalid signature'},401);
   const interaction=JSON.parse(raw);
   if(interaction.type===1)return reply({type:1});
-  const answer=content=>reply({type:4,data:{content,flags:64,allowed_mentions:{parse:[]}}});
+  const answer=content=>reply({type:4,data:privateCard(content)});
   if([3,5].includes(interaction.type))return caseInteraction(interaction,env,origin,ctx);
   if(interaction.type!==2||interaction.data?.name!=='request-logs')return answer('Unknown command.');
   const staff=[env.REPORT_MAINTAINER_ID,env.ANDROID_REPORT_MAINTAINER_ID].filter(Boolean);

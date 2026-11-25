@@ -112,6 +112,13 @@ export async function stageStorage(request,storage,env){
 
 export async function claimPage(request,env,{base,user,token,escape}){
   const path=root+'/claim/'+token;
+  const back=(notice='')=>new Response(null,{status:303,headers:{...noStore,Location:path+(notice?'?notice='+notice:'')}});
+  const notices={
+    review:'Review your report below before posting.',
+    destination:'Select an open support thread or create a new one.',
+    limited:'Too many reports. Please wait before posting again.',
+    delivery:'Delivery could not be confirmed. Check your Discord thread before retrying.',
+  };
   function page(contents,status=200){
     return new Response('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Post Galaxy report</title><style>:root{color-scheme:dark}body{background:#15111e;color:#f6f1ff;font:1rem/1.55 system-ui;margin:0;padding:1rem}main{max-width:32rem;margin:5vh auto;padding:1.5rem;border-radius:1rem;background:#221b30}select,button,a{font:inherit}select,button{display:block;width:100%;padding:.65rem;margin:.7rem 0;border-radius:.65rem}button{background:#d4b7ff;color:#21152d;border:0;font-weight:600}a{color:#dabdff}blockquote{margin:1rem 0;white-space:pre-wrap;overflow-wrap:anywhere}</style><main><h1>Galaxy support</h1>'+contents+'</main>',{status,headers:{...noStore,'Content-Type':'text/html;charset=utf-8','Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'"}});
   }
@@ -119,29 +126,29 @@ export async function claimPage(request,env,{base,user,token,escape}){
   const call=(action,data)=>instance(env,token).fetch('https://reports/stage/'+action,{method:'POST',body:JSON.stringify({user,...data})});
   const preview=await call('preview',{}), data=await preview.json();
   const receipt=url=>page('<p>Your report was posted.</p><a href="'+escape(url)+'">Open your Discord thread ↗</a>');
-  if(!preview.ok)return page(escape(data.error),preview.status);
-  if(data.sent)return receipt(data.threadURL);
+  if(!preview.ok)return request.method==='POST'?back():page(escape(data.error),preview.status);
+  if(data.sent)return request.method==='POST'?back():receipt(data.threadURL);
   // Bind the form to this signed-in reporter and capture even when Safari omits Origin.
   const formKey=await crypto.subtle.importKey('raw',new TextEncoder().encode(env.DISCORD_CLIENT_SECRET),
     {name:'HMAC',hash:'SHA-256'},false,['sign','verify']);
   const formData=new TextEncoder().encode(JSON.stringify(['galaxy-confirm',base,token,user.id]));
   if(request.method==='POST'){
     const origin=request.headers.get('Origin');
-    const reopen=()=>page('<p>Open the confirmation again to finish posting.</p><a href="'+path+'">Review my report</a>',403);
-    if(origin && origin!=='null' && origin!==base)return reopen();
-    const form=await request.formData();
+    if(origin && origin!=='null' && origin!==base)return back('review');
+    let form;
+    try{form=await request.formData();}catch{return back('review');}
     if(origin!==base){
       const proof=form.get('confirmation');
-      if(typeof proof!=='string'||!/^[a-f0-9]{64}$/.test(proof))return reopen();
+      if(typeof proof!=='string'||!/^[a-f0-9]{64}$/.test(proof))return back('review');
       const bytes=Uint8Array.from(proof.match(/../g),pair=>parseInt(pair,16));
-      if(!await crypto.subtle.verify('HMAC',formKey,bytes,formData))return reopen();
+      if(!await crypto.subtle.verify('HMAC',formKey,bytes,formData))return back('review');
     }
     const target=form.get('destination');
     const match=/^(ios|android):(\d{1,20})$/.exec(target);
-    if(!['new','new-android'].includes(target)&&!match)return page('Select a destination.',400);
+    if(!['new','new-android'].includes(target)&&!match)return back('destination');
     const result=await call('post',{threadID:match?.[2],platform:match?.[1]||(target==='new-android'?'android':data.phone || (data.kind==='connection'?'ios':'android'))});
-    const response=await result.json();
-    return result.ok?receipt(response.threadURL):page(escape(response.error),result.status);
+    if(result.ok)return back();
+    return back(result.status===429?'limited':result.status===400?'destination':'delivery');
   }
   if(request.method!=='GET')return page('Open the confirmation page.',405);
   const owner=env.REPORTS.get(env.REPORTS.idFromName(user.id));
@@ -151,5 +158,7 @@ export async function claimPage(request,env,{base,user,token,escape}){
     return (await result.json()).reports.map(t=>'<option value="'+platform+':'+escape(t.id)+'">'+escape(t.title)+'</option>').join('');
   }));
   const confirmation=hex(new Uint8Array(await crypto.subtle.sign('HMAC',formKey,formData)));
-  return page('<p>Signed in as <strong>'+escape(user.global_name||user.username)+'</strong></p><h2>'+labels[data.kind]+' report</h2><blockquote>'+escape(data.note)+'</blockquote><p>Your note appears in the thread. Only staff receive the ZIP and device details.</p><form method="post"><input type="hidden" name="confirmation" value="'+confirmation+'"><label>Post to<select name="destination"><option value="new">'+(data.phone?'Create a new '+(data.phone==='ios'?'iOS':'Android')+' support thread':data.kind==='connection'?'Create a new iOS support thread':'Create a new support thread')+'</option>'+(data.kind==='connection' && !data.phone?'<option value="new-android">Create a new Android support thread</option>':'')+lists.join('')+'</select></label>'+(lists.includes(null)?'<p>Some threads could not be loaded. Refresh to try again.</p>':'')+'<button>Post report</button></form>');
+  const notice=new URL(request.url).searchParams.get('notice');
+  const banner=Object.hasOwn(notices,notice)?'<p role="status">'+notices[notice]+'</p>':'';
+  return page(banner+'<p>Signed in as <strong>'+escape(user.global_name||user.username)+'</strong></p><h2>'+labels[data.kind]+' report</h2><blockquote>'+escape(data.note)+'</blockquote><p>Your note appears in the thread. Only staff receive the ZIP and device details.</p><form method="post"><input type="hidden" name="confirmation" value="'+confirmation+'"><label>Post to<select name="destination"><option value="new">'+(data.phone?'Create a new '+(data.phone==='ios'?'iOS':'Android')+' support thread':data.kind==='connection'?'Create a new iOS support thread':'Create a new support thread')+'</option>'+(data.kind==='connection' && !data.phone?'<option value="new-android">Create a new Android support thread</option>':'')+lists.join('')+'</select></label>'+(lists.includes(null)?'<p>Some threads could not be loaded. Refresh to try again.</p>':'')+'<button>Post report</button></form>');
 }

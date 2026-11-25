@@ -1,4 +1,4 @@
-import {botPost,supportCard} from './bot-delivery.mjs';
+import {botPost,supportCard,privateCard} from './bot-delivery.mjs';
 import {discordTags, getReportThread, supportForum, supportTags} from './thread-tags.mjs';
 import {issueDriveLink, sendDriveInvite} from './drive-logs.mjs';
 
@@ -21,7 +21,7 @@ const descriptions={
 };
 const statusColor={'Open':0x3498db,'In Progress':0xe69b22,'Closed':0x359467};
 const row = component => ({type:1,components:[component]});
-const ephemeral = content => Response.json({type:4,data:{flags:64,content,allowed_mentions:{parse:[]}}});
+const ephemeral = (content,controls) => Response.json({type:4,data:privateCard(content,controls)});
 const idPattern = /^\d{1,20}$/;
 
 export function reporterButtons(user,platform,channel) {
@@ -53,22 +53,22 @@ export async function caseInteraction(i,env,origin,ctx) {
   if(!reporterAction && (action==='note' ? actor!==user&&!sage : !sage)) return ephemeral(action==='note'?'Only the reporter or StarPilot Sage can add details.':'Staff Actions requires the StarPilot Sage role.');
   if(i.type===3 && command==='menu'){
     const options=Object.entries(titles).filter(([k])=>k!=='note').map(([value,label])=>({label,value,description:descriptions[value]}));
-    return Response.json({type:4,data:{flags:64,components:[row({type:3,custom_id:base+'pick:'+channel,placeholder:'Choose a staff action',options})]}});
+    return ephemeral('**Staff Actions**', [row({type:3,custom_id:base+'pick:'+channel,placeholder:'Choose a staff action',options})]);
   }
   if(!reporterAction&&!Object.hasOwn(titles,action))return ephemeral('Unknown support action.');
   if(i.type===3 && command==='pick' && action==='assign'){
-    return Response.json({type:4,data:{flags:64,components:[row({type:5,custom_id:base+'assign:'+channel,placeholder:'Choose a server member'})]}});
+    return ephemeral(titles[action], [row({type:5,custom_id:base+'assign:'+channel,placeholder:'Choose a server member'})]);
   }
   if(i.type===3 && command==='pick' && ['tags','removeTags'].includes(action)){
     const forum=await discordTags(env,'/channels/'+supportForum);
     const thread=await getReportThread(env,channel);
     const options=topicTags(forum).filter(t=>thread.applied_tags.includes(t.id)===(action==='removeTags')).map(t=>({label:t.name,value:t.id}));
     if(!options.length)return ephemeral('There are no topics available for that action.');
-    return Response.json({type:4,data:{flags:64,components:[row({type:3,custom_id:base+action+':'+channel,placeholder:titles[action],max_values:Math.min(5,options.length),options})]}});
+    return ephemeral(titles[action], [row({type:3,custom_id:base+action+':'+channel,placeholder:titles[action],max_values:Math.min(5,options.length),options})]);
   }
   const choices={priority:['0','1','2','3','4','5','Clear'],status:['Open','In Progress','Closed']};
   if(i.type===3 && command==='pick' && choices[action]){
-    return Response.json({type:4,data:{flags:64,components:[row({type:3,custom_id:base+action+':'+channel,placeholder:titles[action],options:choices[action].map(value=>({label:value,value}))})]}});
+    return ephemeral(titles[action], [row({type:3,custom_id:base+action+':'+channel,placeholder:titles[action],options:choices[action].map(value=>({label:value,value}))})]);
   }
   const prompts={question:'What do you need from the reporter?',feedback:'What did you find or what do you need?',note:'What happened?',testing:'Build and steps to test',rename:'New thread title',duplicate:'Original Discord thread link or ID'};
   if(i.type===3 && prompts[action]){
@@ -84,7 +84,7 @@ export async function caseInteraction(i,env,origin,ctx) {
       const response=await owner.fetch('https://reports/case-action',{method:'POST',body:JSON.stringify({user,platform,channel,action,actor,value,interaction:i.id,origin})});
       content=(await response.json()).message||content;
     }finally{
-      await fetch('https://discord.com/api/v10/webhooks/'+i.application_id+'/'+i.token+'/messages/@original',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({content,allowed_mentions:{parse:[]}}),redirect:'manual'});
+      await fetch('https://discord.com/api/v10/webhooks/'+i.application_id+'/'+i.token+'/messages/@original',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({...privateCard(content),content:null,embeds:[]}),redirect:'manual'});
     }
   })());
   return Response.json({type:5,data:{flags:64}});

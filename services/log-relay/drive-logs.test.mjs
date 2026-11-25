@@ -17,14 +17,15 @@ function fixture(t){
     if(target.pathname==='/api/v10/channels/777/messages'){
       assert.equal(init.headers.Authorization,'Bot test');
       const message=JSON.parse(init.body);
-      if(rejectReceipt && !message.components){rejectReceipt=false;return new Response('',{status:429});}
-      posts.push(message.components?{invite:message}:{priv:false,body:init.body});
+      const receipt=message.components[0]?.components?.[0]?.content?.startsWith('Drive logs received.');
+      if(rejectReceipt && receipt){rejectReceipt=false;return new Response('',{status:429});}
+      posts.push(!receipt?{invite:message}:{priv:false,body:init.body});
       return Response.json({id:'456',channel_id:'777'});
     }
     if(target.pathname==='/api/v10/channels/888/threads'){
       assert.equal(init.headers.Authorization,'Bot test');
       const {name,message}=JSON.parse(init.body.get('payload_json'));
-      assert.match(name,/Drive logs/);assert.match(message.content,/Reference/);
+      assert.match(name,/Drive logs/);assert.match(message.components[0].components[0].content,/Reference/);assert.ok(message.components[0].components.some(c=>c.type===13));
       posts.push({priv:true,body:init.body});
       return Response.json({id:'222',parent_id:'888',message:{id:'111',channel_id:'222'}});
     }
@@ -60,7 +61,7 @@ test('issue a link, deliver private details and attach a segment, publish only a
   assert.match(await priv.body.get('files[0]').text(),/private test note/);
   assert.equal(priv.body.get('files[1]').name,'rlog.zst');
   const state=await f.store.get('drive');
-  assert.equal(JSON.parse(pub.body).content,'Drive logs received. Reference: '+state.reference);
+  assert.equal(JSON.parse(pub.body).components[0].components[0].content,'Drive logs received. Reference: '+state.reference);
   await f.send(f.form());
   assert.equal(f.posts.length,2);
 });

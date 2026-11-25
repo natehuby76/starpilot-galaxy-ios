@@ -452,17 +452,17 @@ for(const platform of ['ios','android']) test(platform+' bot report pings its ma
       posts.push('private');
       assert.ok(options.body.get('files[0]').size>0);
       const fields=JSON.parse(options.body.get('payload_json'));
-      assert.ok(fields.name);assert.ok(fields.message.content.includes(body.reference));
+      assert.ok(fields.name);assert.ok(fields.message.components[0].components[0].content.includes(body.reference));
       return Response.json({id:'888',parent_id:'666',message:{id:'888',channel_id:'888'}});
     }
     assert.equal(path,'/api/v10/channels/777/threads');
     posts.push('public');
     const fields=JSON.parse(options.body);
-    assert.ok(fields.message.content.includes('/333/888/888'));assert.ok(fields.name);
-    assert.ok(!fields.message.content.includes(body.logs));
+    assert.ok(fields.message.components[0].components[0].content.includes('/333/888/888'));assert.ok(fields.name);
+    assert.ok(!fields.message.components[0].components[0].content.includes(body.logs));
     const maintainer=platform==='ios'?env.REPORT_MAINTAINER_ID:botEnv.ANDROID_REPORT_MAINTAINER_ID;
     assert.deepEqual(fields.message.allowed_mentions.users,[body.user.id,maintainer]);
-    assert.ok(fields.message.components[0].components.every(button=>button.custom_id.includes(':'+platform+':')));
+    assert.ok(fields.message.components[1].components.every(button=>button.custom_id.includes(':'+platform+':')));
     if(posts.length===2)return new Response('',{status:429});
     return Response.json({id:'222',parent_id:'777',message:{id:'222',channel_id:'222'}});
   });
@@ -498,7 +498,7 @@ test('recaptured Galaxy logs resume after private rejection and use the verified
     }
     assert.ok(path.endsWith('/channels/222/messages'));
     sends.push('public receipt');
-    assert.ok(JSON.parse(options.body).content.includes('/333/888/888'));
+    assert.ok(JSON.parse(options.body).components[0].components[0].content.includes('/333/888/888'));
     return Response.json({id:'111',channel_id:channel});
   });
   const send=logs=>service.fetch(request('/submit',{...body,source:'galaxy',deviceCapture:true,threadID:channel,platform:'ios',logs}));

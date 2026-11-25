@@ -9,12 +9,12 @@ const interaction=(command,actor)=>({type:3,guild_id:'1387432184121393333',membe
 test('reporter can add details and staff get a private action menu',async()=>{
   assert.equal(caseButtons('1','ios')[0].components.length,2);
   assert.equal((await (await caseInteraction(interaction('note','1'),env)).json()).type,9);
-  assert.equal((await (await caseInteraction(interaction('menu','1'),env)).json()).data.components,undefined);
-  assert.equal((await (await caseInteraction(interaction('menu','2'),env)).json()).data.components,undefined);
+  assert.equal((await (await caseInteraction(interaction('menu','1'),env)).json()).data.components[0].components.length,1);
+  assert.equal((await (await caseInteraction(interaction('menu','2'),env)).json()).data.components[0].components.length,1);
   const menu=await (await caseInteraction(interaction('menu','3'),env)).json();
-  assert.equal(menu.data.flags,64);
-  assert.deepEqual(menu.data.components[0].components[0].options.slice(0,3).map(o=>o.value),['tags','working','assign']);
-  assert.match((await (await caseInteraction(interaction('priority:5','2'),env)).json()).data.content,/original/);
+  assert.equal(menu.data.flags,32832);
+  assert.deepEqual(menu.data.components[0].components[1].components[0].options.slice(0,3).map(o=>o.value),['tags','working','assign']);
+  assert.match((await (await caseInteraction(interaction('priority:5','2'),env)).json()).data.components[0].components[0].content,/original/);
 });
 test('priority is stored on the verified ticket and a repeated interaction posts once',async()=>{
   const data=new Map([['thread:4',{platform:'ios',title:'Original'}]]);
@@ -40,8 +40,8 @@ test('marking in progress preserves topics and assignment uses a Discord user pi
   const pick=interaction('pick:4','3');
   pick.data.values=['assign'];
   const picker=await (await caseInteraction(pick,env)).json();
-  assert.equal(picker.data.flags,64);
-  assert.equal(picker.data.components[0].components[0].type,5);
+  assert.equal(picker.data.flags,32832);
+  assert.equal(picker.data.components[0].components[1].components[0].type,5);
   const prior=globalThis.fetch, patched=[];
   globalThis.fetch=async(url,options)=>{
     if(options.method==='PATCH'){patched.push(JSON.parse(options.body));return Response.json({});}
@@ -59,9 +59,9 @@ test('marking in progress preserves topics and assignment uses a Discord user pi
 test('only the reporter can give feedback or mark a request fulfilled',async()=>{
   const open=async(command,actor)=> (await caseInteraction(interaction(command,actor),env)).json();
   assert.equal((await open('feedback:4','1')).type,9);
-  assert.equal((await open('feedback:4','2')).data.flags,64);
-  assert.equal((await open('fulfilled:4','3')).data.flags,64);
-  assert.equal((await open('fulfilled:5','1')).data.flags,64);
+  assert.equal((await open('feedback:4','2')).data.flags,32832);
+  assert.equal((await open('fulfilled:4','3')).data.flags,32832);
+  assert.equal((await open('fulfilled:5','1')).data.flags,32832);
 });
 
 test('each reporter update puts working staff controls beneath the new card',async t=>{
@@ -109,7 +109,7 @@ test('closing archives after the status card and reopening restores the same thr
 
 test('the overview is staff-only and reads archived tickets without posting',async t=>{
   const denied=await (await caseInteraction(interaction('overview:4','1'),env)).json();
-  assert.match(denied.data.content,/Sage/);
+  assert.match(denied.data.components[0].components[0].content,/Sage/);
   const data=new Map([['thread:4',{platform:'ios',priority:'0',assignee:'3'}],['latest-diagnostics:4','https://discord.com/channels/1/10/20']]);
   t.mock.method(globalThis,'fetch',async(url,options)=>{
     assert.equal(options.method,'GET');

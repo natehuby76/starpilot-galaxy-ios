@@ -48,17 +48,19 @@ for(const [kind,file,target] of [['starport','session.txt','new'],['connection',
       headers:{Origin:origin},body:new URLSearchParams({destination})}:{})}),env,{base,token,user:who,escape:s=>String(s)});
     assert.equal((await open(null)).status,303);
     assert.match(await (await open(user)).text(),/Lost nav/);
-    assert.equal((await open(user,'POST',target,'https://other.example')).status,403);
-    assert.equal((await open(user,'POST','ios:999')).status,409);
+    assert.equal((await open(user,'POST',target,'https://other.example')).headers.get('Location'), new URL(claimUrl).pathname+'?notice=review');
+    assert.equal((await open(user,'POST','ios:999')).headers.get('Location'),new URL(claimUrl).pathname+'?notice=delivery');
     assert.equal(uploads.length,0);
-    assert.match(await (await open(user,'POST')).text(),/Open your Discord thread/);
+    assert.equal((await open(user,'POST')).status,303);
+    assert.match(await (await open(user)).text(),/Open your Discord thread/);
     assert.deepEqual(uploads[0].zip,zip);
     assert.equal(uploads[0].meta.threadID,target==='new'?undefined:'123');
     assert.equal(uploads[0].meta.controllerLog,kind==='controller');
     assert.match(uploads[0].meta.deviceSummary,/Test car/);
     assert.deepEqual([...storage.rows.keys()].sort(),['stage','stageCleanup']);
     assert.equal((await open({id:'99'})).status,403);
-    assert.match(await (await open(user,'POST')).text(),/Open your Discord thread/);
+    assert.equal((await open(user,'POST')).status,303);
+    assert.match(await (await open(user)).text(),/Open your Discord thread/);
     assert.equal(uploads.length,1);
   });
 }
@@ -86,7 +88,7 @@ test('Nate-testing separate headers preserve the chosen Android app and decode t
   const {claimUrl}=await response.json(),token=claimUrl.split('/').pop();
   const posted=await claimPage(new Request(claimUrl,{method:'POST',headers:{Origin:base},
     body:new URLSearchParams({destination:'new'})}),env,{base,token,user,escape:String});
-  assert.equal(posted.status,200);
+  assert.equal(posted.status,303);
   assert.equal(uploads[0].meta.platform,'android');
   assert.equal(uploads[0].meta.description,'[Android] Bluetooth café');
 });
@@ -100,10 +102,11 @@ test('Safari confirmation remains tied to the signed-in user and staged report',
     const confirmation=html.match(/name="confirmation" value="([a-f0-9]+)"/)[1];
     const post=(who,proof,source)=>claimPage(new Request(claimUrl,{method:'POST',
       headers:source===null?{}:{Origin:source},body:new URLSearchParams({destination:'new',confirmation:proof})}),env,{...options,user:who});
-    assert.equal((await post(user,'',origin)).status,403);
-    assert.equal((await post({...user,id:'89'},confirmation,origin)).status,403);
-    assert.equal((await post(user,confirmation,'https://other.example')).status,403);
-    assert.match(await (await post(user,confirmation,origin)).text(),/Your report was posted/);
+    assert.equal((await post(user,'',origin)).headers.get('Location'),new URL(claimUrl).pathname+'?notice=review');
+    assert.equal((await post({...user,id:'89'},confirmation,origin)).headers.get('Location'),new URL(claimUrl).pathname+'?notice=review');
+    assert.equal((await post(user,confirmation,'https://other.example')).headers.get('Location'),new URL(claimUrl).pathname+'?notice=review');
+    assert.equal((await post(user,confirmation,origin)).headers.get('Location'),new URL(claimUrl).pathname);
+    for(let i=0;i<2;i++)assert.match(await (await claimPage(new Request(claimUrl),env,options)).text(),/Your report was posted/);
   }
   assert.equal(uploads.length,2);
 });

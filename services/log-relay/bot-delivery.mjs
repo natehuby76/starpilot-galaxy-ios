@@ -5,12 +5,36 @@ export function supportCard(mention,text,buttons,inside=[],color=0xf2b134){
   return {flags:1<<15,components};
 }
 
+export function privateCard(text, controls=[]) {
+  const card=supportCard('',text,[],controls,0x5865f2);
+  return {...card,flags:card.flags | 64,allowed_mentions:{parse:[]}};
+}
+
+export function messageText(message) {
+  function textOf(component) {
+    if(component.type===10)return [component.content];
+    return (component.components || []).flatMap(textOf);
+  }
+  return [message.content,...(message.components || []).flatMap(textOf)].filter(Boolean).join('\n');
+}
+
 // Normalize Discord's forum-thread response to the same message receipt used for replies.
 export async function botPost(env, channel, payload) {
   if (!env.DISCORD_BOT_TOKEN || !/^[0-9]{1,20}$/.test(channel)) throw Error('Bot destination unavailable');
   const multipart = payload instanceof FormData;
   const fields = multipart ? JSON.parse(payload.get('payload_json')) : payload;
   const {thread_name:name, applied_tags:tags, ...message} = fields;
+  if(message.content && !(message.flags & (1<<15))){
+    const files=[];
+    if(multipart){
+      for(const [key,file] of payload){
+        if(key.startsWith('files[') && file?.name)files.push({type:13,file:{url:'attachment://'+file.name}});
+      }
+    }
+    const card=supportCard('',message.content,message.components || [],files,0x5865f2);
+    delete message.content;
+    Object.assign(message,card);
+  }
   const data = name ? {name, message, ...(tags && {applied_tags:tags})} : message;
   const headers = {Authorization:'Bot '+env.DISCORD_BOT_TOKEN};
   if (multipart) payload.set('payload_json',JSON.stringify(data));

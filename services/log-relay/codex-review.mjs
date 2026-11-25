@@ -1,4 +1,4 @@
-import {botMessage} from './bot-delivery.mjs';
+import {messageText,botMessage} from './bot-delivery.mjs';
 const reviewReply=(data,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'no-store'}});
 const reviewUUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 
@@ -55,7 +55,7 @@ export async function prepareReview(env,report,chat){
   const ids=new URL(report.threadURL).pathname.split('/');
   const publicMessage=report.botPublic ? await botMessage(env,ids[3],ids[4]) : await webhookMessage(env.DISCORD_WEBHOOK_URL,ids[3],ids[4]);
   const messages=[];
-  const original=/\nPrivate diagnostics: https:\/\/discord\.com\/channels\/\d+\/(\d+)\/(\d+)\s*$/.exec(publicMessage.content);
+  const original=/\nPrivate diagnostics: https:\/\/discord\.com\/channels\/\d+\/(\d+)\/(\d+)\s*$/.exec(messageText(publicMessage));
   if(report.botPrivateURL){
     const location = new URL(report.botPrivateURL).pathname.split("/");
     messages.push(await botMessage(env,location[3],location[4]));
@@ -64,8 +64,8 @@ export async function prepareReview(env,report,chat){
   for(const drive of drives)messages.push(drive.bot ? await botMessage(env,drive.channel,drive.id) : await webhookMessage(env.DISCORD_PRIVATE_WEBHOOK_URL,drive.channel,drive.id));
   const token=Array.from(crypto.getRandomValues(new Uint8Array(32)),x=>x.toString(16).padStart(2,'0')).join('');
   // Only references and Discord's short-lived attachment URLs enter the ticket.
-  const entries=messages.map(m=>({message:m.content,attachments:(m.attachments||[]).map(a=>({name:a.filename,url:a.url,size:a.size}))}));
-  const saved=await reviewCall(env,'ticket:'+token,'issue',{chat,reference:report.reference,title:report.title,description:publicMessage.content,entries});
+  const entries=messages.map(m=>({message:messageText(m),attachments:(m.attachments||[]).map(a=>({name:a.filename,url:a.url,size:a.size}))}));
+  const saved=await reviewCall(env,'ticket:'+token,'issue',{chat,reference:report.reference,title:report.title,description:messageText(publicMessage),entries});
   return saved.ok?reviewReply({ticket:token}):saved;
 }
 
