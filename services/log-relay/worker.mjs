@@ -7,7 +7,7 @@ import { diagnosticZip } from './diagnostic-zip.mjs';
 import {claimReview, reviewStorage} from './codex-review.mjs';
 import {caseAction,caseButtons,enableCaseControls} from './case-actions.mjs';
 import {driveObject, drivePage, driveDownload, driveInteraction} from './drive-logs.mjs';
-import {filterReportThreads,getReportThread,supportTags} from './thread-tags.mjs';
+import {filterReportThreads,galaxyReportTags,getReportThread,supportTags} from './thread-tags.mjs';
 import {dashboardAuth} from './dashboard-auth.mjs';
 import {dashboardPage, dashboardAPI} from './dashboard.mjs';
 const BASE = 'https://starpilot-log-relay.nathan-g-hubbard.workers.dev';
@@ -421,7 +421,7 @@ export class Reports {
       const payload = {thread_name: title,
         content: `Report from <@${body.user.id}> (${name})${notify}\nReference: ${body.reference}\n\n${body.description}`,
         allowed_mentions: {parse: [], users: recipients},
-        applied_tags: reportTags(this.env, platform, body.source === "galaxy" ? "Galaxy " + body.description : body.description,reportKind)};
+        applied_tags: path === '/submit-stage' ? galaxyReportTags(this.env, reportKind, platform) : reportTags(this.env, platform, body.source === "galaxy" ? "Galaxy " + body.description : body.description,reportKind)};
       if(this.env.DISCORD_BOT_TOKEN && this.env.DISCORD_PUBLIC_KEY){
         payload.components=caseButtons(body.user.id,platform);
       }
@@ -440,7 +440,10 @@ export class Reports {
       };
       const privateForum = this.env.DISCORD_PRIVATE_FORUM === 'true';
       const privatePayload = {content: `Diagnostics from <@${body.user.id}> (${name})\nReference: ${body.reference}`, allowed_mentions: {parse: []}};
-      if(path==='/submit-stage' && body.deviceSummary)privatePayload.content+='\n'+body.deviceSummary;
+      if (path === '/submit-stage' && body.deviceSummary) {
+        privatePayload.content += '\n\n**Galaxy diagnostics**\n';
+        privatePayload.content += body.deviceSummary.slice(0, 2000 - privatePayload.content.length);
+      }
       if (privateForum) privatePayload.thread_name = title;
       const form = new FormData();
       form.append('payload_json', JSON.stringify(privatePayload));

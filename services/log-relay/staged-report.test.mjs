@@ -30,7 +30,7 @@ function setup(){
   async function stage(kind,filename,note='Screen stayed black'){
     const zip=Buffer.from(await (await diagnosticZip('Synthetic diagnostic data',filename)).arrayBuffer());
     const response=await worker.fetch(new Request(base+'/report/galaxy/stage',{method:'POST',headers:{
-      'Content-Type':'application/zip','X-Galaxy-Report':encodeURIComponent(JSON.stringify({kind,note,car:'Test car',branch:'Nate-testing',commit:'abcdef'}))
+      'Content-Type':'application/zip','X-Galaxy-Summary':encodeURIComponent('Connected: no\nAttempts: 3'),'X-Galaxy-Report':encodeURIComponent(JSON.stringify({kind,note,car:'Test car',branch:'Nate-testing',commit:'abcdef'}))
     },body:zip}),env);
     return {response,zip};
   }
@@ -60,6 +60,7 @@ for(const [kind,file,target] of [['starport','session.txt','new'],['connection',
     assert.equal(uploads[0].meta.threadID,target==='new'?undefined:'123');
     assert.equal(uploads[0].meta.controllerLog,kind==='controller');
     assert.match(uploads[0].meta.deviceSummary,/Test car/);
+    assert.match(uploads[0].meta.deviceSummary,/Connected: no\nAttempts: 3/);
     assert.deepEqual([...storage.rows.keys()].sort(),['stage','stageCleanup']);
     assert.equal((await open({id:'99'})).status,403);
     assert.equal((await open(user,'POST')).status,303);

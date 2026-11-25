@@ -23,6 +23,13 @@ export async function stageUpload(request,env,{base,bounded,diagnosticText}){
     if(!field && !['ios','android'].includes(input.phone))throw Error();
     if(!Object.hasOwn(labels,input.kind)||typeof input.note!=='string'||!input.note.trim()||input.note.length>1000)throw Error();
     meta={kind:input.kind,note:input.note.trim()};
+    // Older senders omit this header. A malformed optional summary must not lose a report.
+    let summary = request.headers.get('X-Galaxy-Summary') || '';
+    if (summary && summary.length <= 12000) {
+      try { summary = decodeURIComponent(summary); } catch { /* plain text can contain a percent sign */ }
+      summary = summary.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').trim();
+      if (summary) meta.diagnosticSummary = summary.slice(0, 1500);
+    }
     if(['ios','android'].includes(input.phone))meta.phone=input.phone;
     for(const key of ['model','car','branch','commit']){
       if(typeof input[key]==='string' && input[key].length<=160)meta[key]=input[key];
@@ -97,7 +104,7 @@ export async function stageStorage(request,storage,env){
   const form=new FormData();
   const summary=['model','car','branch','commit'].filter(k=>state[k]).map(k=>k+': '+state[k]).join('\n');
   form.set('metadata',JSON.stringify({user,platform,threadID:target||undefined,reference:state.reference,description:state.note,
-    source:state.kind==='starport'?'starport':'galaxy',controllerLog:state.kind==='controller',deviceCapture:true,deviceSummary:summary}));
+    source:state.kind==='starport'?'starport':'galaxy',controllerLog:state.kind==='controller',deviceCapture:true,deviceSummary:[state.diagnosticSummary, summary].filter(Boolean).join('\n')}));
   form.set('archive',new Blob(parts,{type:'application/zip'}),'capture.zip');
   const result=await owner.fetch('https://reports/submit-stage',{method:'POST',body:form});
   const sent=await result.json();
