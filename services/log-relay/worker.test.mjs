@@ -555,3 +555,29 @@ test('Galaxy controller reports mention Di and apply the configured controller t
   assert.ok(publicPost.content.includes('<@'+config.CONTROLLER_REPORT_MAINTAINER_ID+'>'));
   assert.deepEqual(publicPost.applied_tags,['1565236988913913887',config.CONTROLLER_FORUM_TAG_ID]);
 });
+
+test('Galaxy-first mobile reports appear in the phone picker and receive a follow-up in the same thread',async t=>{
+  const publicPosts=[];
+  t.mock.method(globalThis,'fetch',async(url,opts)=>{
+    const priv=String(url).includes('/456/');
+    if(opts.method!=='POST')return Response.json({guild_id:'333',channel_id:priv?'666':'777'});
+    if(!priv)publicPosts.push(JSON.parse(opts.body));
+    return Response.json({id:priv?'555':'111',channel_id:priv?'666':'222'});
+  });
+  for(const platform of ['ios','android']){
+    publicPosts.length=0;
+    const owner=new Reports({storage:storage()},env);
+    const form=new FormData();
+    form.set('metadata',JSON.stringify({...body,source:'galaxy',platform,deviceCapture:true}));
+    form.set('archive',new Blob(['fixture'],{type:'application/zip'}),'capture.zip');
+    const created=await owner.fetch(new Request('https://reports/submit-stage',{method:'POST',body:form}));
+    assert.equal(created.status,200);
+    const picker=await owner.fetch(request('/list',platform==='ios'?{}:{platform}));
+    assert.deepEqual((await picker.json()).reports.map(item=>item.id),['222']);
+    const reply=await owner.fetch(request('/submit',{...body,platform,threadID:'222',reference:crypto.randomUUID()}));
+    assert.equal(reply.status,200);
+    assert.equal(publicPosts.length,2);
+    assert.ok(publicPosts[0].thread_name);
+    assert.equal(publicPosts[1].thread_name,undefined);
+  }
+});

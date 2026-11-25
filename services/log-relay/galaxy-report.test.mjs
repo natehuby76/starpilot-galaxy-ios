@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import {runInNewContext} from 'node:vm';
 import {test} from 'node:test';
 import worker from './worker.mjs';
-import {driveObject} from './drive-logs.mjs';
 import {diagnosticZip} from './diagnostic-zip.mjs';
 
 const base = 'https://starpilot-log-relay.nathan-g-hubbard.workers.dev';
@@ -28,35 +27,15 @@ test('Galaxy browser OAuth returns to a private report form and submits only the
   const runtime = {...env,REPORTS:{
     idFromName(id) { assert.ok(id==='555' || id.startsWith('drive-log:')); return id; },
     get(id) { return {async fetch(path, options) {
-      if(id.startsWith('drive-log:starport-approval:')){
-        if(!approvals.has(id))approvals.set(id,new Map());
-        const map=approvals.get(id);
-        const storage={get:k=>map.get(k),put:(k,v)=>map.set(k,v),transaction:fn=>fn(storage),setAlarm:()=>{}};
-        return driveObject(new Request(path,options),storage,runtime);
-      }
-      if(id.startsWith('drive-log:code:')){
-        if(path.endsWith('/issue')) {codes.set(id, JSON.parse(options.body));return Response.json({created:true});}
-        return codes.has(id)?Response.json(codes.get(id)):Response.json({}, {status:410});
-      }
       if(path==='https://reports/drive/issue'){newRequest=JSON.parse(options.body);return Response.json({created:true});}
       if(path==='https://reports/drive/fresh')return Response.json(newRequest || {kind:'controller',platform:'android',threadID:'2',reference,userID:owner,title:'Controller report'});
-      if(path==='https://reports/submit-starport'){
-        const metadata=JSON.parse(options.body.get('metadata'));
-        assert.equal(metadata.source,'starport');
-        assert.equal(metadata.description,'Black screen');
-        assert.equal(metadata.platform,'android');
-        assert.equal(metadata.user.id,'555');
-        assert.deepEqual(new Uint8Array(await options.body.get('archive').arrayBuffer()),originalZip);
-        return Response.json({sent:true,threadURL:'https://discord.com/channels/1/2/3'});
-      }
       assert.equal(path,'https://reports/submit');
       sends.push(JSON.parse(options.body));
       return Response.json({sent:true,threadURL:'https://discord.com/channels/1/2/3'});
     }}; },
   }};
   const open = (path, options) => worker.fetch(new Request(base+path,options),runtime);
-  const codes=new Map(), approvals=new Map();
-  let originalZip, challenge, newRequest, owner='555';
+  let challenge, newRequest, owner='555';
   try {
     const landing=await (await open(web)).text();
     assert.match(landing,/\/new\/connection/);
@@ -116,8 +95,9 @@ test('Galaxy browser OAuth returns to a private report form and submits only the
       controls['open-galaxy'].onclick();
       assert.equal(target,expected && expected+'/#/logs/help/controller');
     }
-    const device=(body)=>open(web+'/device',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    assert.equal((await device({action:'check',code:'0'.repeat(12)})).status,410);
+    for(const path of ['/device','/starport-claim','/starport/upload']){
+      assert.equal((await open(web+path,{method:'POST',headers:{Cookie:session,Origin:base}})).status,404);
+    }
     const archive=Buffer.from(await (await diagnosticZip(controllerLog,'bluetooth-log.json')).arrayBuffer()).toString('base64');
     const capture=new URLSearchParams({archive});
     const post=origin=>open(ticket,{method:'POST',body:capture,headers:{Origin:origin,Cookie:session}});
@@ -154,27 +134,10 @@ test('Galaxy browser OAuth returns to a private report form and submits only the
     assert.equal(sends[3].threadID,undefined);
     assert.equal(sends[3].description,'Wi-Fi drops');
     assert.equal(sends[3].logs,'local access diagnostics');
-    originalZip=new Uint8Array(await (await diagnosticZip('private session data','session.txt')).arrayBuffer());
-    const upload=(code,body)=>open(web+'/starport/upload',{method:'POST',headers:{'Content-Type':'application/zip','X-Galaxy-Code':code,'X-StarPort-Note':'Black%20screen'},body});
-    assert.equal((await upload('0'.repeat(12),originalZip)).status,410);
     const next=await open(web+'/new/starport',{method:'POST',headers:{Origin:base,Cookie:session}});
     const codePage=await (await open(next.headers.get('Location'),{headers:{Cookie:session}})).text();
     assert.doesNotMatch(codePage,/Copy code|paste the code/i);
     assert.match(codePage,/Sign in with Discord/i);
-    const verifier='d'.repeat(64);
-    const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(verifier));
-    const authPath=web+'/starport-auth/'+Buffer.from(digest).toString('hex');
-    const claim=v=>open(web+'/starport-claim',{method:'POST',headers:{'X-StarPort-Verifier':v}});
-    assert.equal((await claim(verifier)).status,410);
-    assert.match((await open(authPath)).headers.get('Location'),/sign-in/);
-    assert.equal((await open(authPath,{method:'POST',headers:{Cookie:session,Origin:'https://other.example'}})).status,403);
-    const approval=await open(authPath,{method:'POST',headers:{Cookie:session,Origin:base}});
-    assert.match(await approval.text(),/Return to Galaxy/);
-    assert.equal((await claim('e'.repeat(64))).status,410);
-    const grant=await (await claim(verifier)).json();
-    assert.equal((await upload(grant.code,originalZip)).status,200);
-    assert.equal(newRequest.threadID,undefined);
-
   } finally { globalThis.fetch = originalFetch; }
 });
 

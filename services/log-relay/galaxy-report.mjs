@@ -1,5 +1,5 @@
 import {stageUpload,claimPage} from './staged-report.mjs';
-import {freshRequest,startGalaxyCapture,issueCaptureCode,resolveCaptureCode} from './drive-logs.mjs';
+import {freshRequest,startGalaxyCapture} from './drive-logs.mjs';
 import {freshCapturePage} from './fresh-capture.mjs';
 const PAGE = '/report/galaxy';
 const MANUAL = PAGE + '/manual';
@@ -131,7 +131,7 @@ export async function galaxyReportPage(request, env, {base, callback, discord, s
     target.search = new URLSearchParams({client_id:env.DISCORD_CLIENT_ID, redirect_uri:callback, response_type:'code', scope:'identify',
       state, code_challenge:challenge, code_challenge_method:'S256'}).toString();
     const returnPath = url.searchParams.get('return') || PAGE;
-    const next = returnPath === MANUAL || /^\/report\/galaxy\/(?:(?:fresh|starport-auth|claim)\/[a-f0-9]{64}|new\/(?:connection|controller|starport))$/.test(returnPath) ? returnPath : PAGE;
+    const next = returnPath === MANUAL || /^\/report\/galaxy\/(?:(?:fresh|claim)\/[a-f0-9]{64}|new\/(?:connection|controller|starport))$/.test(returnPath) ? returnPath : PAGE;
     const transaction = await seal(secret,OAUTH_COOKIE,{state,verifier,next,expires:Date.now()+600000});
     return redirect(target.href,[cookie(OAUTH_COOKIE,transaction,600)]);
   }
@@ -161,44 +161,6 @@ export async function galaxyReportPage(request, env, {base, callback, discord, s
   if(url.pathname===PAGE+'/stage')return stageUpload(request,env,{base,bounded,diagnosticText});
   const claim=/^\/report\/galaxy\/claim\/([a-f0-9]{64})$/.exec(url.pathname);
   if(claim)return claimPage(request,env,{base,user,token:claim[1],escape});
-  const approvalObject=challenge=>env.REPORTS.get(env.REPORTS.idFromName('drive-log:starport-approval:'+challenge));
-  const authorization=/^\/report\/galaxy\/starport-auth\/([a-f0-9]{64})$/.exec(url.pathname);
-  if(authorization){
-    const html=(body,status=200)=>new Response('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>StarPort support</title><style>body{color-scheme:dark;background:#171221;color:#f7f3ff;font:1rem/1.55 system-ui;max-width:32rem;margin:8vh auto;padding:1rem}a,button{font:inherit;color:#211531;background:#d2b5ff;border:0;border-radius:.7rem;padding:.65rem 1rem;display:inline-block}</style><main><h1>StarPort support</h1>'+body+'</main>',{status,headers:{'Content-Type':'text/html;charset=utf-8','Cache-Control':'no-store','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'"}});
-    if(!user)return redirect(PAGE+'/sign-in?return='+encodeURIComponent(url.pathname));
-    if(request.method==='GET')return html('<p>Signed in as <strong>'+escape(user.global_name||user.username)+'</strong>.</p><p>Allow the Galaxy session you opened to submit one StarPort report with this account.</p><form method="post"><button>Allow this report</button></form>');
-    if(request.method!=='POST'||request.headers.get('Origin')!==base)return html('<p>Reopen sign-in from Galaxy.</p>',403);
-    const ticket=await startGalaxyCapture(env,base,user.id,'starport');
-    if(ticket.status!==303)return html('<p>Could not start your report. Try again from Galaxy.</p>',503);
-    const code=await issueCaptureCode(env,ticket.headers.get('Location').split('/').pop(),user);
-    const stored=await approvalObject(authorization[1]).fetch('https://reports/drive/authorize-starport',{method:'POST',body:JSON.stringify({kind:'starport-approval',userID:user.id,code,expires:Date.now()+600000})});
-    return stored.ok?html('<p>Return to Galaxy and press <strong>Send report</strong> within 10 minutes.</p>'):html('<p>Start another report from Galaxy.</p>',stored.status);
-  }
-  if(url.pathname===PAGE+'/starport-claim' && request.method==='POST'){
-    const verifier=request.headers.get('X-StarPort-Verifier')||'';
-    if(!/^[a-f0-9]{64}$/.test(verifier))return Response.json({error:'Invalid session'},{status:400});
-    const hash=await crypto.subtle.digest('SHA-256',encode(verifier));
-    const challenge=Array.from(new Uint8Array(hash),n=>n.toString(16).padStart(2,'0')).join('');
-    return approvalObject(challenge).fetch('https://reports/drive/starport-approval');
-  }
-  if (url.pathname === PAGE+'/starport/upload') {
-    const fail=(error,status)=>Response.json({error},{status});
-    if(request.method!=='POST'||request.headers.get('content-type')!=='application/zip')return fail('StarPort ZIP required.',415);
-    const target=await resolveCaptureCode(env,request.headers.get('X-Galaxy-Code'));
-    if(target?.ticket.kind!=='starport')return fail('Open the StarPort request for a fresh code.',410);
-    let note;
-    try{note=decodeURIComponent(request.headers.get('X-StarPort-Note')||'').trim();}catch{return fail('Invalid report description.',400);}
-    if(!note||note.length>240)return fail('Add a short description.',400);
-    let bytes;
-    try{bytes=await bounded(request.body,10*1024*1024-65536);}catch{return fail('StarPort ZIP exceeds the attachment limit.',413);}
-    if(bytes.length<22||new DataView(bytes.buffer).getUint32(0,true)!==0x04034b50)return fail('Invalid StarPort ZIP.',400);
-    const {ticket,user:reporter}=target;
-    const form=new FormData();
-    form.set('metadata',JSON.stringify({user:reporter,platform:ticket.platform,threadID:ticket.threadID,reference:ticket.reference,description:note,source:'starport',deviceCapture:true}));
-    form.set('archive',new Blob([bytes],{type:'application/zip'}),'starport.zip');
-    return env.REPORTS.get(env.REPORTS.idFromName(reporter.id)).fetch('https://reports/submit-starport',{method:'POST',body:form});
-  }
-  if(url.pathname===PAGE+'/device')return Response.json({error:'Open Logs & Diagnostics → Get help in Galaxy.'},{status:410});
   const start = /^\/report\/galaxy\/new\/(connection|controller|starport)$/.exec(url.pathname);
   if (start) {
     if (request.method === 'GET') {
@@ -228,7 +190,8 @@ export async function galaxyReportPage(request, env, {base, callback, discord, s
   if (request.method === 'GET' && url.pathname === MANUAL) return page({user});
   if (request.method !== 'POST' || request.headers.get('Origin') !== base) return page({user,error:'Open the report form to continue.',status:403});
   if (url.pathname === PAGE + '/sign-out') return redirect(PAGE,[cookie(SESSION_COOKIE,'',0)]);
-  if (![PAGE, MANUAL].includes(url.pathname) || !user) return page({error:'Sign in with Discord before sending.',status:401});
+  if (![PAGE, MANUAL].includes(url.pathname))return new Response('Not found',{status:404});
+  if (!user) return page({error:'Sign in with Discord before sending.',status:401});
 
   let description = '', reference;
   try {

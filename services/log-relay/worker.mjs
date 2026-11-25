@@ -300,7 +300,7 @@ export class Reports {
       if(path.startsWith('/stage/'))return stageStorage(request,this.ctx.storage,this.env);
       if(path.startsWith('/review/'))return reviewStorage(this.ctx.storage,path.slice(8),await request.json());
       if(path.startsWith('/drive/')) return driveObject(request,this.ctx.storage,this.env);
-      const starportForm=['/submit-starport','/submit-stage'].includes(path)?await request.formData():null;
+      const starportForm=path==='/submit-stage'?await request.formData():null;
       const starportZip=starportForm?.get('archive');
       const body=starportForm?JSON.parse(starportForm.get('metadata')):await request.json();
       if(path==='/case-action')return caseAction(this.ctx.storage,this.env,body);
