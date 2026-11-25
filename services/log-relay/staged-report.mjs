@@ -121,9 +121,21 @@ export async function claimPage(request,env,{base,user,token,escape}){
   const receipt=url=>page('<p>Your report was posted.</p><a href="'+escape(url)+'">Open your Discord thread ↗</a>');
   if(!preview.ok)return page(escape(data.error),preview.status);
   if(data.sent)return receipt(data.threadURL);
+  // Bind the form to this signed-in reporter and capture even when Safari omits Origin.
+  const formKey=await crypto.subtle.importKey('raw',new TextEncoder().encode(env.DISCORD_CLIENT_SECRET),
+    {name:'HMAC',hash:'SHA-256'},false,['sign','verify']);
+  const formData=new TextEncoder().encode(JSON.stringify(['galaxy-confirm',base,token,user.id]));
   if(request.method==='POST'){
-    if(request.headers.get('Origin')!==base)return page('Reopen the confirmation page.',403);
+    const origin=request.headers.get('Origin');
+    const reopen=()=>page('<p>Open the confirmation again to finish posting.</p><a href="'+path+'">Review my report</a>',403);
+    if(origin && origin!=='null' && origin!==base)return reopen();
     const form=await request.formData();
+    if(origin!==base){
+      const proof=form.get('confirmation');
+      if(typeof proof!=='string'||!/^[a-f0-9]{64}$/.test(proof))return reopen();
+      const bytes=Uint8Array.from(proof.match(/../g),pair=>parseInt(pair,16));
+      if(!await crypto.subtle.verify('HMAC',formKey,bytes,formData))return reopen();
+    }
     const target=form.get('destination');
     const match=/^(ios|android):(\d{1,20})$/.exec(target);
     if(!['new','new-android'].includes(target)&&!match)return page('Select a destination.',400);
@@ -138,5 +150,6 @@ export async function claimPage(request,env,{base,user,token,escape}){
     if(!result.ok)return null;
     return (await result.json()).reports.map(t=>'<option value="'+platform+':'+escape(t.id)+'">'+escape(t.title)+'</option>').join('');
   }));
-  return page('<p>Signed in as <strong>'+escape(user.global_name||user.username)+'</strong></p><h2>'+labels[data.kind]+' report</h2><blockquote>'+escape(data.note)+'</blockquote><p>Your note appears in the thread. Only staff receive the ZIP and device details.</p><form method="post"><label>Post to<select name="destination"><option value="new">'+(data.phone?'Create a new '+(data.phone==='ios'?'iOS':'Android')+' support thread':data.kind==='connection'?'Create a new iOS support thread':'Create a new support thread')+'</option>'+(data.kind==='connection' && !data.phone?'<option value="new-android">Create a new Android support thread</option>':'')+lists.join('')+'</select></label>'+(lists.includes(null)?'<p>Some threads could not be loaded. Refresh to try again.</p>':'')+'<button>Post report</button></form>');
+  const confirmation=hex(new Uint8Array(await crypto.subtle.sign('HMAC',formKey,formData)));
+  return page('<p>Signed in as <strong>'+escape(user.global_name||user.username)+'</strong></p><h2>'+labels[data.kind]+' report</h2><blockquote>'+escape(data.note)+'</blockquote><p>Your note appears in the thread. Only staff receive the ZIP and device details.</p><form method="post"><input type="hidden" name="confirmation" value="'+confirmation+'"><label>Post to<select name="destination"><option value="new">'+(data.phone?'Create a new '+(data.phone==='ios'?'iOS':'Android')+' support thread':data.kind==='connection'?'Create a new iOS support thread':'Create a new support thread')+'</option>'+(data.kind==='connection' && !data.phone?'<option value="new-android">Create a new Android support thread</option>':'')+lists.join('')+'</select></label>'+(lists.includes(null)?'<p>Some threads could not be loaded. Refresh to try again.</p>':'')+'<button>Post report</button></form>');
 }

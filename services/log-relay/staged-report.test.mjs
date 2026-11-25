@@ -90,3 +90,20 @@ test('Nate-testing separate headers preserve the chosen Android app and decode t
   assert.equal(uploads[0].meta.platform,'android');
   assert.equal(uploads[0].meta.description,'[Android] Bluetooth café');
 });
+
+test('Safari confirmation remains tied to the signed-in user and staged report', async()=>{
+  const {env,uploads,stage}=setup();
+  for(const origin of [null,'null']){
+    const {claimUrl}=await (await stage('starport','session.txt')).response.json();
+    const options={base,token:claimUrl.split('/').pop(),user,escape:String};
+    const html=await (await claimPage(new Request(claimUrl),env,options)).text();
+    const confirmation=html.match(/name="confirmation" value="([a-f0-9]+)"/)[1];
+    const post=(who,proof,source)=>claimPage(new Request(claimUrl,{method:'POST',
+      headers:source===null?{}:{Origin:source},body:new URLSearchParams({destination:'new',confirmation:proof})}),env,{...options,user:who});
+    assert.equal((await post(user,'',origin)).status,403);
+    assert.equal((await post({...user,id:'89'},confirmation,origin)).status,403);
+    assert.equal((await post(user,confirmation,'https://other.example')).status,403);
+    assert.match(await (await post(user,confirmation,origin)).text(),/Your report was posted/);
+  }
+  assert.equal(uploads.length,2);
+});
