@@ -408,7 +408,6 @@ export class Reports {
         content: `Report from <@${body.user.id}> (${name})${notify}\nReference: ${body.reference}\n\n${body.description}`,
         allowed_mentions: {parse: [], users: recipients},
         applied_tags: path === '/submit-stage' ? galaxyReportTags(this.env, reportKind, platform) : reportTags(this.env, platform, body.source === "galaxy" ? "Galaxy " + body.description : body.description,reportKind)};
-      if (path === '/submit-stage' && body.publicSummary) payload.content += '\n\n**Galaxy diagnostics**\n' + body.publicSummary;
       if(this.env.DISCORD_BOT_TOKEN && this.env.DISCORD_PUBLIC_KEY){
         payload.components=caseButtons(body.user.id,platform);
       }
@@ -427,13 +426,15 @@ export class Reports {
       };
       const privateForum = this.env.DISCORD_PRIVATE_FORUM === 'true';
       const privatePayload = {content: `Diagnostics from <@${body.user.id}> (${name})\nReference: ${body.reference}`, allowed_mentions: {parse: []}};
-      if (path === '/submit-stage' && body.deviceSummary) {
-        privatePayload.content += '\n\n**Galaxy diagnostics**\n';
-        privatePayload.content += body.deviceSummary.slice(0, 2000 - privatePayload.content.length);
+      function withDiagnostics(message, summary, bot) {
+        if (path !== '/submit-stage' || !summary) return message;
+        const content = message.content + '\n\n**Galaxy diagnostics**\n' + summary;
+        if (bot || content.length <= 2000) return {...message, content};
+        return {...message, embeds:[{title:'Galaxy diagnostics', description:summary}]};
       }
       if (privateForum) privatePayload.thread_name = title;
       const form = new FormData();
-      form.append('payload_json', JSON.stringify(privatePayload));
+      form.append('payload_json', JSON.stringify(withDiagnostics(privatePayload, body.deviceSummary, Boolean(this.env.DISCORD_BOT_TOKEN))));
       if (attachment) form.append('files[0]', attachment, body.source==='starport' ? `StarPort-${body.reference}.zip` : `StarPilot-${body.reference}.${platform === 'ios' || body.source === 'galaxy' ? 'zip' : 'txt'}`);
       webhook.searchParams.set('wait', 'true');
       try {
@@ -446,7 +447,7 @@ export class Reports {
             if (privateResult.status === 403) {
               // Discord rejected the upload. The configured private forum webhook can post it once.
               botPrivate = false;
-              form.set('payload_json', JSON.stringify(privatePayload));
+              form.set('payload_json', JSON.stringify(withDiagnostics(privatePayload, body.deviceSummary, false)));
             }
           }
           if (!botPrivate) privateResult = await fetch(privateWebhook, {method:'POST',body:form,redirect:'manual',signal:AbortSignal.timeout(15000)});
@@ -459,7 +460,8 @@ export class Reports {
           await this.ctx.storage.put(key, uncertain);
         }
         payload.content += `\n\nPrivate diagnostics: ${uncertain.privateURL}`;
-        const result = this.env.DISCORD_BOT_TOKEN ? await botPost(this.env,body.threadID || hook.channel_id,payload) : await fetch(webhook, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload), redirect: 'manual', signal: AbortSignal.timeout(15000)});
+        const publicPost = withDiagnostics(payload, body.publicSummary, Boolean(this.env.DISCORD_BOT_TOKEN));
+        const result = this.env.DISCORD_BOT_TOKEN ? await botPost(this.env,body.threadID || hook.channel_id,publicPost) : await fetch(webhook, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(publicPost), redirect: 'manual', signal: AbortSignal.timeout(15000)});
         if (!result.ok) return await rejected(result, "thread receipt");
         const message = await result.json();
         if (!/^\d+$/.test(message.id || '') || !/^\d+$/.test(message.channel_id || '') || (existingThread && message.channel_id !== body.threadID)) return json(uncertain.result, 409);

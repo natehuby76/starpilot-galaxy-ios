@@ -557,18 +557,19 @@ test('Galaxy controller reports mention Di and apply the configured controller t
 });
 
 test('Galaxy-first mobile reports appear in the phone picker and receive a follow-up in the same thread',async t=>{
-  const publicPosts=[];
+  const publicPosts=[], privatePosts=[];
   t.mock.method(globalThis,'fetch',async(url,opts)=>{
     const priv=String(url).includes('/456/');
     if(opts.method!=='POST')return Response.json({guild_id:'333',channel_id:priv?'666':'777'});
-    if(!priv)publicPosts.push(JSON.parse(opts.body));
+    if(priv)privatePosts.push(JSON.parse(opts.body.get('payload_json')));
+    else publicPosts.push(JSON.parse(opts.body));
     return Response.json({id:priv?'555':'111',channel_id:priv?'666':'222'});
   });
   for(const platform of ['ios','android']){
     publicPosts.length=0;
     const owner=new Reports({storage:storage()},env);
     const form=new FormData();
-    form.set('metadata',JSON.stringify({...body,source:'galaxy',platform,deviceCapture:true,publicSummary:'Bluetooth bridge: active',deviceSummary:'Device private123'}));
+    form.set('metadata',JSON.stringify({...body,source:'galaxy',platform,deviceCapture:true,publicSummary:'Bluetooth bridge: active',deviceSummary:'Bluetooth bridge: active'}));
     form.set('archive',new Blob(['fixture'],{type:'application/zip'}),'capture.zip');
     const created=await owner.fetch(new Request('https://reports/submit-stage',{method:'POST',body:form}));
     assert.equal(created.status,200);
@@ -578,7 +579,7 @@ test('Galaxy-first mobile reports appear in the phone picker and receive a follo
     assert.equal(reply.status,200);
     assert.equal(publicPosts.length,2);
     assert.match(publicPosts[0].content,/Bluetooth bridge: active/);
-    assert.doesNotMatch(publicPosts[0].content,/private123/);
+    assert.match(privatePosts.at(-2).content,/Bluetooth bridge: active/);
     assert.ok(publicPosts[0].thread_name);
     assert.equal(publicPosts[1].thread_name,undefined);
   }

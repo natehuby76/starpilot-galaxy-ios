@@ -9,28 +9,6 @@ const instance=(env,key)=>env.REPORTS.get(env.REPORTS.idFromName('staged-report:
 const isThread=url=>/^https:\/\/discord\.com\/channels\/\d+\/\d+\/\d+$/.test(url);
 const labels={starport:'StarPort',controller:'Bluetooth controller',connection:'App connection'};
 
-// Only publish known diagnostic values. Free-text device and head-unit names stay with staff.
-export function publicCaptureSummary(kind, summary = '') {
-  const lines = summary.split('\n');
-  if (kind === 'starport') {
-    const setup = /^Setup: (built-in|builtin|adapter|usb|app)(?: \/ |$)/i.exec(lines.find(line => line.startsWith('Setup: ')) || '');
-    const handshake = lines.find(line => line.startsWith('Handshake: ')) || '';
-    const outcome = /\((worked|advanced|tried|failed)\)$/.exec(handshake);
-    const commit = / @ ([a-f\d]{7,40})$/i.exec(lines.find(line => line.startsWith('Repo ')) || '');
-    return [setup && 'Setup: ' + setup[1], outcome && 'Last handshake outcome: ' + outcome[1], commit && 'Commit: ' + commit[1]].filter(Boolean).join('\n');
-  }
-  const patterns = kind === 'controller' ? [
-    /^External input interfaces: \d{1,4}(?: \(inventory truncated\))?$/,
-    /^Eligible: \d{1,4} \| Filtered: \d{1,4} \| Duplicate identity: \d{1,4}$/
-  ] : [
-    /^Comma uptime: (?:\d{1,10} seconds|unavailable)$/,
-    /^Parked configuration allowed: (?:True|False|unavailable)$/,
-    /^Bonjour advertiser: (?:active|inactive|failed|activating|deactivating|reloading|unknown|unavailable)$/,
-    /^Bluetooth bridge: (?:active|inactive|failed|activating|deactivating|reloading|unknown|unavailable)$/
-  ];
-  return patterns.map(pattern => lines.find(line => pattern.test(line))).filter(Boolean).join('\n');
-}
-
 export async function stageUpload(request,env,{base,bounded,diagnosticText}){
   if(request.method!=='POST'||request.headers.get('Content-Type')!=='application/zip')return json({error:'Expected a diagnostic ZIP.'},415);
   let meta;
@@ -100,7 +78,8 @@ export async function stageStorage(request,storage,env){
   const {user,threadID,platform,shareSummary}=await request.json();
   if(state.owner&&state.owner!==user.id)return json({error:'Open this report with the account that posted it.'},403);
   if(state.receipt)return json(state.receipt);
-  const publicSummary=publicCaptureSummary(state.kind,state.diagnosticSummary);
+  const fields=['model','car','branch','commit'].filter(key=>state[key]).map(key=>key+': '+state[key]);
+  const publicSummary=[state.diagnosticSummary,...fields].filter(Boolean).join('\n');
   if(path==='/stage/preview')return json({publicSummary,phone:state.phone,note:state.note,kind:state.kind,model:state.model,car:state.car,branch:state.branch,commit:state.commit});
   if(path!=='/stage/post')return json({},404);
   const owner=env.REPORTS.get(env.REPORTS.idFromName(user.id));
@@ -125,9 +104,8 @@ export async function stageStorage(request,storage,env){
     parts.push(part);
   }
   const form=new FormData();
-  const summary=['model','car','branch','commit'].filter(k=>state[k]).map(k=>k+': '+state[k]).join('\n');
   form.set('metadata',JSON.stringify({user,platform,threadID:target||undefined,reference:state.reference,description:state.note,
-    source:state.kind==='starport'?'starport':'galaxy',controllerLog:state.kind==='controller',deviceCapture:true,publicSummary:shareSummary===true?publicSummary:'',deviceSummary:[state.diagnosticSummary, summary].filter(Boolean).join('\n')}));
+    source:state.kind==='starport'?'starport':'galaxy',controllerLog:state.kind==='controller',deviceCapture:true,publicSummary:shareSummary===true?publicSummary:'',deviceSummary:publicSummary}));
   form.set('archive',new Blob(parts,{type:'application/zip'}),'capture.zip');
   const result=await owner.fetch('https://reports/submit-stage',{method:'POST',body:form});
   const sent=await result.json();
@@ -178,7 +156,8 @@ export async function claimPage(request,env,{base,user,token,escape}){
     const match=/^(ios|android):(\d{1,20})$/.exec(target);
     if(!['new','new-android'].includes(target)&&!match)return back('destination');
     if(target==='new-android' && (data.kind!=='connection'||data.phone==='ios'))return back('destination');
-    const result=await call('post',{shareSummary:form.get('shareSummary')==='1',threadID:match?.[2],platform:match?.[1]||(target==='new-android'?'android':data.phone || (data.kind==='connection'?'ios':'android'))});
+    if(data.publicSummary && form.get('shareSummary')!=='full')return back('review');
+    const result=await call('post',{shareSummary:form.get('shareSummary')==='full',threadID:match?.[2],platform:match?.[1]||(target==='new-android'?'android':data.phone || (data.kind==='connection'?'ios':'android'))});
     if(result.ok)return back();
     return back(result.status===429?'limited':result.status===400?'destination':'delivery');
   }
@@ -195,5 +174,5 @@ export async function claimPage(request,env,{base,user,token,escape}){
   const banner=Object.hasOwn(notices,notice)?'<p role="status">'+notices[notice]+'</p>':'';
   const newCategory=data.kind==='connection'?(data.phone==='android'?'Android':'iOS'):labels[data.kind];
   const choosePhone=data.kind==='connection' && !data.phone;
-  return page(banner+'<p>Signed in as <strong>'+escape(user.global_name||user.username)+'</strong></p><h2>'+labels[data.kind]+' report</h2><blockquote>'+escape(data.note)+'</blockquote><p>Your note appears in the public support thread. Only staff receive the ZIP and full diagnostics.</p>'+(data.publicSummary?'<strong>Public diagnostic summary</strong><blockquote>'+escape(data.publicSummary)+'</blockquote>':'')+'<form method="post"><input type="hidden" name="shareSummary" value="'+(data.publicSummary?'1':'0')+'"><input type="hidden" name="confirmation" value="'+confirmation+'"><label>Post to<select name="destination" required>'+(choosePhone?'<option value="" selected disabled>Choose a phone platform or existing thread</option>':'')+'<option value="new">Create a new '+newCategory+' support thread</option>'+(choosePhone?'<option value="new-android">Create a new Android support thread</option>':'')+lists.join('')+'</select></label>'+(lists.includes(null)?'<p>Some threads could not be loaded. Refresh to try again.</p>':'')+'<button>Post report</button></form>');
+  return page(banner+'<p>Signed in as <strong>'+escape(user.global_name||user.username)+'</strong></p><h2>'+labels[data.kind]+' report</h2><blockquote>'+escape(data.note)+'</blockquote><p>Your note appears in the public support thread. The same diagnostic summary appears in the public and staff threads. Only staff receive the ZIP.</p>'+(data.publicSummary?'<strong>Public diagnostic summary</strong><blockquote>'+escape(data.publicSummary)+'</blockquote>':'')+'<form method="post"><input type="hidden" name="shareSummary" value="'+(data.publicSummary?'full':'0')+'"><input type="hidden" name="confirmation" value="'+confirmation+'"><label>Post to<select name="destination" required>'+(choosePhone?'<option value="" selected disabled>Choose a phone platform or existing thread</option>':'')+'<option value="new">Create a new '+newCategory+' support thread</option>'+(choosePhone?'<option value="new-android">Create a new Android support thread</option>':'')+lists.join('')+'</select></label>'+(lists.includes(null)?'<p>Some threads could not be loaded. Refresh to try again.</p>':'')+'<button>Post report</button></form>');
 }

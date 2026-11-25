@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import worker,{Reports} from './worker.mjs';
-import {claimPage,publicCaptureSummary} from './staged-report.mjs';
+import {claimPage} from './staged-report.mjs';
 import {diagnosticZip} from './diagnostic-zip.mjs';
 
 const base='https://starpilot-log-relay.nathan-g-hubbard.workers.dev';
@@ -45,7 +45,7 @@ for(const [kind,file,target] of [['starport','session.txt','new'],['connection',
     const token=claimUrl.split('/').pop();
     const {storage}=stores.get('staged-report:'+token);
     const open=(who,method='GET',destination=target,origin=base)=>claimPage(new Request(claimUrl,{method,...(method==='POST'?{
-      headers:{Origin:origin},body:new URLSearchParams({destination})}:{})}),env,{base,token,user:who,escape:s=>String(s)});
+      headers:{Origin:origin},body:new URLSearchParams({destination,shareSummary:"full"})}:{})}),env,{base,token,user:who,escape:s=>String(s)});
     assert.equal((await open(null)).status,303);
     const confirmationPage=await (await open(user)).text();
     assert.equal(confirmationPage.includes('Lost nav'),kind==='connection');
@@ -53,12 +53,17 @@ for(const [kind,file,target] of [['starport','session.txt','new'],['connection',
     else assert.match(confirmationPage,/selected disabled>Choose a phone platform/);
     assert.equal((await open(user,'POST',target,'https://other.example')).headers.get('Location'), new URL(claimUrl).pathname+'?notice=review');
     assert.equal((await open(user,'POST','ios:999')).headers.get('Location'),new URL(claimUrl).pathname+'?notice=destination');
+    const legacy=await claimPage(new Request(claimUrl,{method:'POST',headers:{Origin:base},
+      body:new URLSearchParams({destination:target,shareSummary:'1'})}),env,{base,token,user,escape:String});
+    assert.equal(legacy.headers.get('Location'),new URL(claimUrl).pathname+'?notice=review');
     assert.equal(uploads.length,0);
     assert.equal((await open(user,'POST')).status,303);
     assert.match(await (await open(user)).text(),/Open your Discord thread/);
     assert.deepEqual(uploads[0].zip,zip);
     assert.equal(uploads[0].meta.threadID,target==='new'?undefined:'123');
     assert.equal(uploads[0].meta.controllerLog,kind==='controller');
+    assert.equal(uploads[0].meta.publicSummary,uploads[0].meta.deviceSummary);
+    assert.ok(confirmationPage.includes(uploads[0].meta.publicSummary));
     assert.match(uploads[0].meta.deviceSummary,/Test car/);
     assert.match(uploads[0].meta.deviceSummary,/Connected: no\nAttempts: 3/);
     assert.deepEqual([...storage.rows.keys()].sort(),['stage','stageCleanup']);
@@ -105,7 +110,7 @@ test('Safari confirmation remains tied to the signed-in user and staged report',
     const html=await (await claimPage(new Request(claimUrl),env,options)).text();
     const confirmation=html.match(/name="confirmation" value="([a-f0-9]+)"/)[1];
     const post=(who,proof,source)=>claimPage(new Request(claimUrl,{method:'POST',
-      headers:source===null?{}:{Origin:source},body:new URLSearchParams({destination:'new',confirmation:proof})}),env,{...options,user:who});
+      headers:source===null?{}:{Origin:source},body:new URLSearchParams({destination:'new',confirmation:proof,shareSummary:'full'})}),env,{...options,user:who});
     assert.equal((await post(user,'',origin)).headers.get('Location'),new URL(claimUrl).pathname+'?notice=review');
     assert.equal((await post({...user,id:'89'},confirmation,origin)).headers.get('Location'),new URL(claimUrl).pathname+'?notice=review');
     assert.equal((await post(user,confirmation,'https://other.example')).headers.get('Location'),new URL(claimUrl).pathname+'?notice=review');
@@ -126,12 +131,4 @@ test('hardware reports ignore the comma phone label, including existing staged c
    assert.ok(html.includes('Create a new '+category+' support thread'));
    assert.equal(html.includes('Create a new iOS support thread'),category==='iOS');
  }
-});
-
-test('public diagnostics omit identifiers and free text for all three captures',()=>{
-  const text='Device abc12345\nHead unit: My private Bluetooth name\nSetup: adapter / private profile\nHandshake: standard (advanced) > other_reply (worked)\nRepo personal/fork · Branch personal @ abc1234567';
-  assert.equal(publicCaptureSummary('starport',text),'Setup: adapter\nLast handshake outcome: worked\nCommit: abc1234567');
-  assert.equal(publicCaptureSummary('connection','Device abc12345\nBluetooth bridge: active\nBonjour advertiser: active <@123>'),'Bluetooth bridge: active');
-  assert.equal(publicCaptureSummary('controller','External input interfaces: 3\nEligible: 1 | Filtered: 2 | Duplicate identity: 0\nsecret'),'External input interfaces: 3\nEligible: 1 | Filtered: 2 | Duplicate identity: 0');
-  assert.equal(publicCaptureSummary('connection'), '');
 });
