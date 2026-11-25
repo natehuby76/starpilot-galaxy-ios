@@ -130,7 +130,7 @@ export async function galaxyReportPage(request, env, {base, callback, discord, s
     target.search = new URLSearchParams({client_id:env.DISCORD_CLIENT_ID, redirect_uri:callback, response_type:'code', scope:'identify',
       state, code_challenge:challenge, code_challenge_method:'S256'}).toString();
     const returnPath = url.searchParams.get('return') || PAGE;
-    const next = returnPath === MANUAL || /^\/report\/galaxy\/(?:fresh\/[a-f0-9]{64}|new\/(?:connection|controller))$/.test(returnPath) ? returnPath : PAGE;
+    const next = returnPath === MANUAL || /^\/report\/galaxy\/(?:fresh\/[a-f0-9]{64}|new\/(?:connection|controller|starport))$/.test(returnPath) ? returnPath : PAGE;
     const transaction = await seal(secret,OAUTH_COOKIE,{state,verifier,next,expires:Date.now()+600000});
     return redirect(target.href,[cookie(OAUTH_COOKIE,transaction,600)]);
   }
@@ -157,6 +157,23 @@ export async function galaxyReportPage(request, env, {base, callback, discord, s
     return redirect(transaction.next || PAGE,cookies);
   }
   const {user} = await openCookie(request,secret,SESSION_COOKIE) || {};
+  if (url.pathname === PAGE+'/starport/upload') {
+    const fail=(error,status)=>Response.json({error},{status});
+    if(request.method!=='POST'||request.headers.get('content-type')!=='application/zip')return fail('StarPort ZIP required.',415);
+    const target=await resolveCaptureCode(env,request.headers.get('X-Galaxy-Code'));
+    if(target?.ticket.kind!=='starport')return fail('Open the StarPort request for a fresh code.',410);
+    let note;
+    try{note=decodeURIComponent(request.headers.get('X-StarPort-Note')||'').trim();}catch{return fail('Invalid report description.',400);}
+    if(!note||note.length>240)return fail('Add a short description.',400);
+    let bytes;
+    try{bytes=await bounded(request.body,10*1024*1024-65536);}catch{return fail('StarPort ZIP exceeds the attachment limit.',413);}
+    if(bytes.length<22||new DataView(bytes.buffer).getUint32(0,true)!==0x04034b50)return fail('Invalid StarPort ZIP.',400);
+    const {ticket,user:reporter}=target;
+    const form=new FormData();
+    form.set('metadata',JSON.stringify({user:reporter,platform:ticket.platform,threadID:ticket.threadID,reference:ticket.reference,description:note,source:'starport',deviceCapture:true}));
+    form.set('archive',new Blob([bytes],{type:'application/zip'}),'starport.zip');
+    return env.REPORTS.get(env.REPORTS.idFromName(reporter.id)).fetch('https://reports/submit-starport',{method:'POST',body:form});
+  }
   if (url.pathname === PAGE+'/device') {
     const error = (message,status) => Response.json({error:message},{status,headers:{'Cache-Control':'no-store'}});
     if (request.method !== 'POST' || request.headers.get('Content-Type')?.split(';')[0] !== 'application/json') return error('JSON POST required',415);
@@ -165,8 +182,8 @@ export async function galaxyReportPage(request, env, {base, callback, discord, s
     const target = await resolveCaptureCode(env,data?.code);
     if (!target) return error('Code expired or incorrect. Open the request in Discord for a fresh code.',410);
     const {ticket,user:reporter}=target;
-    if(data.action==='check') return Response.json({title:ticket.title,kind:ticket.kind},{headers:{'Cache-Control':'no-store'}});
-    if(data.action!=='send' || typeof data.archive!=='string' || data.archive.length>131072) return error('Invalid capture',400);
+    if(data.action==='check') return Response.json({title:ticket.title || 'New StarPort report',kind:ticket.kind},{headers:{'Cache-Control':'no-store'}});
+    if(ticket.kind==='starport'||data.action!=='send' || typeof data.archive!=='string' || data.archive.length>131072) return error('Invalid capture',400);
     let diagnostic;
     try {
       diagnostic=await diagnosticText(new Blob([Uint8Array.from(atob(data.archive),c=>c.charCodeAt(0))]));
@@ -179,7 +196,7 @@ export async function galaxyReportPage(request, env, {base, callback, discord, s
       return error(receipt.error || 'Delivery could not be confirmed. Check your thread.',sent.ok?502:sent.status);
     return Response.json({sent:true},{headers:{'Cache-Control':'no-store'}});
   }
-  const start = /^\/report\/galaxy\/new\/(connection|controller)$/.exec(url.pathname);
+  const start = /^\/report\/galaxy\/new\/(connection|controller|starport)$/.exec(url.pathname);
   if (start) {
     if (request.method === 'GET') {
       const id = nonce();

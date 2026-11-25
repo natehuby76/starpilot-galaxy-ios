@@ -33,6 +33,15 @@ test('Galaxy browser OAuth returns to a private report form and submits only the
       }
       if(path==='https://reports/drive/issue'){newRequest=JSON.parse(options.body);return Response.json({created:true});}
       if(path==='https://reports/drive/fresh')return Response.json(newRequest || {kind:'controller',platform:'android',threadID:'2',reference,userID:owner,title:'Controller report'});
+      if(path==='https://reports/submit-starport'){
+        const metadata=JSON.parse(options.body.get('metadata'));
+        assert.equal(metadata.source,'starport');
+        assert.equal(metadata.description,'Black screen');
+        assert.equal(metadata.platform,'android');
+        assert.equal(metadata.user.id,'555');
+        assert.deepEqual(new Uint8Array(await options.body.get('archive').arrayBuffer()),originalZip);
+        return Response.json({sent:true,threadURL:'https://discord.com/channels/1/2/3'});
+      }
       assert.equal(path,'https://reports/submit');
       sends.push(JSON.parse(options.body));
       return Response.json({sent:true,threadURL:'https://discord.com/channels/1/2/3'});
@@ -40,7 +49,7 @@ test('Galaxy browser OAuth returns to a private report form and submits only the
   }};
   const open = (path, options) => worker.fetch(new Request(base+path,options),runtime);
   const codes=new Map();
-  let challenge, newRequest, owner='555';
+  let originalZip, challenge, newRequest, owner='555';
   try {
     const landing=await (await open(web)).text();
     assert.match(landing,/\/new\/connection/);
@@ -97,7 +106,7 @@ test('Galaxy browser OAuth returns to a private report form and submits only the
     for(const [saved,expected] of [['http://127.0.0.1:8082',undefined],['http://192.168.1.9:8082','http://192.168.1.9:8082']]){
       const controls={'open-galaxy':{hidden:true},'missing-address':{},address:{},launch:{}};
       let target;
-      runInNewContext(launch.match(/<script[^>]*>([\s\S]*?)<\/script>/)[1],{URL,document:{getElementById:id=>controls[id]},localStorage:{getItem:()=>saved},location:{assign:url=>{target=url;}}});
+      runInNewContext([...launch.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].at(-1)[1],{URL,document:{getElementById:id=>controls[id]},localStorage:{getItem:()=>saved},location:{assign:url=>{target=url;}}});
       controls['open-galaxy'].onclick();
       assert.equal(target,expected && expected+'/#/logs/help/fresh/controller/'+'b'.repeat(64));
     }
@@ -147,6 +156,17 @@ test('Galaxy browser OAuth returns to a private report form and submits only the
     assert.equal(sends[3].threadID,undefined);
     assert.equal(sends[3].description,'Wi-Fi drops');
     assert.equal(sends[3].logs,'local access diagnostics');
+    originalZip=new Uint8Array(await (await diagnosticZip('private session data','session.txt')).arrayBuffer());
+    const upload=(code,body)=>open(web+'/starport/upload',{method:'POST',headers:{'Content-Type':'application/zip','X-Galaxy-Code':code,'X-StarPort-Note':'Black%20screen'},body});
+    assert.equal((await upload(code,originalZip)).status,410);
+    const next=await open(web+'/new/starport',{method:'POST',headers:{Origin:base,Cookie:session}});
+    const codePage=await (await open(next.headers.get('Location'),{headers:{Cookie:session}})).text();
+    assert.match(codePage,/Copy code/);
+    const starCode=codePage.match(/<strong>([a-z0-9]{4}(?: [a-z0-9]{4}){2})<[/]strong>/)[1].replaceAll(' ','');
+    assert.deepEqual(await (await device({action:'check',code:starCode})).json(),{title:'New StarPort report',kind:'starport'});
+    assert.equal((await upload(starCode,new Uint8Array(30))).status,400);
+    assert.equal((await upload(starCode,originalZip)).status,200);
+    assert.equal((await device({action:'send',code:starCode,archive})).status,400);
   } finally { globalThis.fetch = originalFetch; }
 });
 

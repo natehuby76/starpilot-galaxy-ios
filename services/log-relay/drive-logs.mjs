@@ -40,7 +40,7 @@ export async function sendDriveInvite(env, threadID, token) {
 
 export async function startGalaxyCapture(env, origin, userID, kind) {
   const token = hex(crypto.getRandomValues(new Uint8Array(32)));
-  const record = {token,origin,userID,kind,platform:'ios',reference:crypto.randomUUID(),expires:Date.now()+day};
+  const record = {token,origin,userID,kind,platform:kind==='starport'?'android':'ios',reference:crypto.randomUUID(),expires:Date.now()+day};
   const stored = await object(env,token).fetch('https://reports/drive/issue',{method:'POST',body:JSON.stringify(record)});
   if (!stored.ok) return stored;
   return new Response(null,{status:303,headers:{Location:'/report/galaxy/fresh/'+token,'Cache-Control':'no-store'}});
@@ -62,7 +62,7 @@ export async function resolveCaptureCode(env, code) {
   if (!result.ok) return null;
   const {token,user} = await result.json();
   const ticket = await freshRequest(env, token);
-  return ticket?.threadID && ticket.userID === user.id ? {ticket,user} : null;
+  return ticket && (ticket.threadID || ticket.kind==='starport') && ticket.userID === user.id ? {ticket,user} : null;
 }
 
 export async function freshRequest(env, token) {
@@ -184,14 +184,14 @@ export async function driveObject(request,storage,env) {
     if(reserved==='pending')return unconfirmed();
     let result;
     try {
-      const capture = ['connection','controller'].includes(record.kind);
+      const capture = ['connection','controller','starport'].includes(record.kind);
       const page = record.kind === 'controller' ? 'Bluetooth' : 'Networks';
       const link = record.origin+(capture ? '/report/galaxy/fresh/' : '/drive/')+record.token;
       const intro = capture ? [
-        record.kind==='controller' ? '**Physical controller logs requested**' : '**Phone app connection logs requested**',
+        record.kind==='starport' ? '**StarPort / Android Auto logs requested**' : record.kind==='controller' ? '**Physical controller logs requested**' : '**Phone app connection logs requested**',
         'Start here. Tap the button below, sign in with Discord, and copy your code.'
       ].join('\n') : '**Drive logs requested**\nUse the link below to submit the drive logs privately for this report.';
-      const remaining = capture ? [
+      const remaining = record.kind==='starport' ? '2. Open **Galaxy → Logs & Diagnostics → StarPort Logs**. Enter the code, check the report title, describe what happened and press **Send StarPort logs**. Only staff receive the ZIP.' : capture ? [
         '2. Open Galaxy → Galaxy Access & Connections → '+page+' → Connection logs. Choose **Send to existing Discord thread**.',
         '3. Enter the code, tap **Find report**, then **Capture and send**.',
         '',
@@ -227,7 +227,7 @@ export async function driveObject(request,storage,env) {
     await storage.delete('invitePending');
     return reply({sent:true});
   }
-  if (action === '/drive/fresh' && ['controller','connection'].includes(record.kind)) {
+  if (action === '/drive/fresh' && ['controller','connection','starport'].includes(record.kind)) {
     const {userID, platform, threadID, reference, title, kind} = record;
     return reply({userID, platform, threadID, reference, title, kind});
   }

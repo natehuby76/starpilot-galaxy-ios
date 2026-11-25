@@ -229,7 +229,7 @@ export function reportTags(env, platform, description) {
 
 // Use only the written description. The diagnostics attachment never goes to the model.
 export async function reportTitle(ai, description, platform = 'ios', source) {
-  const prefix = (source === 'galaxy' ? 'Galaxy' : platformLabel(platform)) + ' — ';
+  const prefix = (source === 'starport' ? 'StarPort' : source === 'galaxy' ? 'Galaxy' : platformLabel(platform)) + ' — ';
   const fallback = description.trim().split('\n')[0].replace(/[\r\n\x00-\x1f]/g, ' ').trim();
   if (!ai) return (prefix + fallback).slice(0, 100);
   try {
@@ -274,7 +274,9 @@ export class Reports {
       }
       if(path.startsWith('/review/'))return reviewStorage(this.ctx.storage,path.slice(8),await request.json());
       if(path.startsWith('/drive/')) return driveObject(request,this.ctx.storage,this.env);
-      const body = await request.json();
+      const starportForm=path==='/submit-starport'?await request.formData():null;
+      const starportZip=starportForm?.get('archive');
+      const body=starportForm?JSON.parse(starportForm.get('metadata')):await request.json();
       if(path==='/case-action')return caseAction(this.ctx.storage,this.env,body);
       if(path.startsWith('/auth-'))return dashboardAuth(this.ctx.storage,path,body);
       if (path === '/build-notice' || path === '/build-notice-status') return this.buildNotice(body, path === '/build-notice-status');
@@ -319,7 +321,7 @@ export class Reports {
         const rows=[...items.values()].filter(item => platformOf(item.platform) === platform).sort((a,b) => b.created - a.created).slice(0,100);
         try{return json({reports:await filterReportThreads(this.env,rows)});}catch{return json({error:'Unable to refresh Discord threads. Please try again.'},503);}
       }
-      if (path !== '/submit') return json({error:'Not found'}, 404);
+      if (path !== '/submit' && !starportForm) return json({error:'Not found'}, 404);
       const existingThread = body.threadID ? await this.ctx.storage.get('thread:' + body.threadID) : null;
       if (body.threadID && !existingThread) return json({error:'Report not found for this Discord account'}, 403);
       if (existingThread && platformOf(existingThread.platform) !== platform) return json({error:'Report belongs to another platform'}, 409);
@@ -332,7 +334,7 @@ export class Reports {
       }
       const controllerLog = body.source === 'galaxy' && body.controllerLog === true;
       const fingerprint = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify([body.description, body.logs, body.threadID || null, ...(controllerLog ? ["controller"] : [])]))))].map(b => b.toString(16).padStart(2, '0')).join('');
-      const recaptured = body.source === 'galaxy' && body.deviceCapture === true && Boolean(existingThread);
+      const recaptured = Boolean(starportZip) || (body.source === 'galaxy' && body.deviceCapture === true && Boolean(existingThread));
       if (!recaptured && previous?.fingerprint && previous.fingerprint !== fingerprint) return json({error: 'Retry the original report without changing its contents.'}, 409);
       const now = Date.now();
       let webhook, privateWebhook;
@@ -358,8 +360,8 @@ export class Reports {
       let attachment;
       if (!previous?.privateURL) {
         try {
-          attachment = platform === 'ios' || body.source === 'galaxy' ? await diagnosticZip(body.logs, controllerLog ? 'bluetooth-log.json' : undefined) :
-            new Blob([body.logs], {type: 'text/plain;charset=utf-8'});
+          attachment = starportZip || (platform === 'ios' || body.source === 'galaxy' ? await diagnosticZip(body.logs, controllerLog ? 'bluetooth-log.json' : undefined) :
+            new Blob([body.logs], {type: 'text/plain;charset=utf-8'}));
         } catch {
           return json({error: 'Could not prepare the diagnostics archive. Retry this report.'}, 503);
         }
@@ -380,7 +382,7 @@ export class Reports {
       await this.ctx.storage.setAlarm(now + 86400000);
       const name = (body.user.global_name || body.user.username).replace(/[\r\n]/g, ' ').slice(0, 80);
       const title = existingThread?.title || previous?.title || await reportTitle(this.env.AI, body.description, platform, body.source);
-      const maintainer = reportMaintainer(this.env, platform) || '';
+      const maintainer = reportMaintainer(this.env, starportZip?'android':platform) || '';
       const recipients = [...new Set([body.user.id, ...(/^\d+$/.test(maintainer) ? [maintainer] : [])])];
       const notify = maintainer && maintainer !== body.user.id && /^\d+$/.test(maintainer) ? `\nFor <@${maintainer}>` : '';
       const payload = {thread_name: title,
@@ -409,7 +411,7 @@ export class Reports {
       if (privateForum) privatePayload.thread_name = title;
       const form = new FormData();
       form.append('payload_json', JSON.stringify(privatePayload));
-      if (attachment) form.append('files[0]', attachment, `StarPilot-${body.reference}.${platform === 'ios' || body.source === 'galaxy' ? 'zip' : 'txt'}`);
+      if (attachment) form.append('files[0]', attachment, starportZip ? `StarPort-${body.reference}.zip` : `StarPilot-${body.reference}.${platform === 'ios' || body.source === 'galaxy' ? 'zip' : 'txt'}`);
       webhook.searchParams.set('wait', 'true');
       try {
         if (!uncertain.privateURL) {

@@ -5,7 +5,7 @@ import {issueDriveLink, sendDriveInvite} from './drive-logs.mjs';
 const titles = {
   note:'Additional Report', tags:'Apply tags', working:'Mark in progress', assign:'Assign someone', unassign:'Clear assignment', priority:'Set Priority', status:'Change Status',
   testing:'Request User Testing', rename:'Rename Thread', duplicate:'Link Duplicate',
-  connection:'Request App Connection Logs', controller:'Request Controller Logs', removeTags:'Remove topic tags'
+  connection:'Request App Connection Logs', controller:'Request Controller Logs', starport:'Request StarPort Logs', removeTags:'Remove topic tags'
 };
 const descriptions={
   tags:'Add topics such as Galaxy, Navigation or CarPlay.', removeTags:'Remove selected topics while keeping the platform and status.',
@@ -14,6 +14,7 @@ const descriptions={
   status:'Open, mark in progress, or close and archive the thread.', testing:'Mention the reporter with the build and steps to test.',
   rename:'Update the title people see in the forum.', duplicate:'Link to the original report by thread link or ID.',
   connection:'Phone app pairing, Bluetooth bridge, Wi-Fi and discovery on the comma.',
+  starport:'Request the original StarPort session ZIP for Android Auto troubleshooting.',
   controller:'USB and Bluetooth input inventory for a physical controller.'
 };
 const statusColor={'Open':0x3498db,'In Progress':0xe69b22,'Closed':0x359467};
@@ -110,7 +111,7 @@ export async function caseAction(storage,env,b){
     await tx.put('case-interactions',[...recent.slice(-99),b.interaction]);return true;
   });
   if(!fresh)return result('This action was already received.');
-  if(['connection','controller'].includes(action)){
+  if(['connection','controller','starport'].includes(action)){
     const link=await issueDriveLink(env,channel,b.origin,{userID:user,platform},action);
     const data=await link.json();
     if(!link.ok)return result(data.error||'Could not create the request.');
