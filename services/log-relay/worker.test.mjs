@@ -118,7 +118,7 @@ test('Android release endpoint sends once, status is read-only, and iOS referenc
 async function assertDiagnosticArchive(form) {
   const archive = form.get('files[0]');
   assert.equal(archive.type, 'application/zip');
-  assert.equal(archive.name, 'StarPilot-' + body.reference + '.zip');
+  assert.equal(archive.name, 'iOS-tester-StarPilot-' + body.reference + '.zip');
   const bytes = Buffer.from(await archive.arrayBuffer());
   assert.equal(bytes.readUInt32LE(0), 0x04034b50);
   const start = 30 + bytes.readUInt16LE(26);

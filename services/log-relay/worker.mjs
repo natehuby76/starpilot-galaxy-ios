@@ -436,7 +436,16 @@ export class Reports {
       if (privateForum) privatePayload.thread_name = title;
       const form = new FormData();
       form.append('payload_json', JSON.stringify(withDiagnostics(privatePayload, body.deviceSummary, Boolean(this.env.DISCORD_BOT_TOKEN))));
-      if (attachment) form.append('files[0]', attachment, body.source==='starport' ? `StarPort-${body.reference}.zip` : `StarPilot-${body.reference}.${platform === 'ios' || body.source === 'galaxy' ? 'zip' : 'txt'}`);
+      if (attachment) {
+        let filename = `StarPilot-${body.reference}.txt`;
+        if (starportZip || platform === 'ios' || body.source === 'galaxy') {
+          const kind = controllerLog ? 'BluetoothController' : body.source === 'starport' ? 'StarPort' :
+            body.source === 'galaxy' ? 'Connection' : platformLabel(platform);
+          const username = body.user.username?.replace(/[^a-zA-Z0-9._-]+/g, '_') || body.user.id;
+          filename = `${kind}-${username}-StarPilot-${body.reference}.zip`;
+        }
+        form.append('files[0]', attachment, filename);
+      }
       webhook.searchParams.set('wait', 'true');
       try {
         if (!uncertain.privateURL) {
