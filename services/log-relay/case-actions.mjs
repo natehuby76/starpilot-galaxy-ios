@@ -4,10 +4,12 @@ import {issueDriveLink, sendDriveInvite} from './drive-logs.mjs';
 
 const titles = {
   note:'Additional Report', tags:'Apply tags', working:'Mark in progress', assign:'Assign someone', unassign:'Clear assignment', priority:'Set Priority', status:'Change Status',
-  testing:'Request User Testing', rename:'Rename Thread', duplicate:'Link Duplicate',
+  overview:'Report overview', question:'Ask the reporter', testing:'Request User Testing', rename:'Rename Thread', duplicate:'Link Duplicate',
   connection:'Request App Connection Logs', controller:'Request Controller Logs', starport:'Request StarPort Logs', removeTags:'Remove topic tags'
 };
 const descriptions={
+  overview:'See status, priority, assignment and the latest available diagnostic link privately.',
+  question:'Mention the reporter and give them a feedback button.',
   tags:'Add topics such as Galaxy, Navigation or CarPlay.', removeTags:'Remove selected topics while keeping the platform and status.',
   working:'Show that you are actively working on the report.', assign:'Pick and notify the person handling the report.',
   unassign:'Remove the current assignee.', priority:'Set urgency from 0 (highest) to 5, or clear it.',
@@ -50,7 +52,7 @@ export async function caseInteraction(i,env,origin,ctx) {
   if(reporterAction && (actor!==user || bound!==channel))return ephemeral('Only the original reporter can respond to this request.');
   if(!reporterAction && (action==='note' ? actor!==user&&!sage : !sage)) return ephemeral(action==='note'?'Only the reporter or StarPilot Sage can add details.':'Staff Actions requires the StarPilot Sage role.');
   if(i.type===3 && command==='menu'){
-    const options=Object.entries(titles).filter(([k])=>k!=='note').map(([value,label])=>({label,value}));
+    const options=Object.entries(titles).filter(([k])=>k!=='note').map(([value,label])=>({label,value,description:descriptions[value]}));
     return Response.json({type:4,data:{flags:64,components:[row({type:3,custom_id:base+'pick:'+channel,placeholder:'Choose a staff action',options})]}});
   }
   if(!reporterAction&&!Object.hasOwn(titles,action))return ephemeral('Unknown support action.');
@@ -68,9 +70,9 @@ export async function caseInteraction(i,env,origin,ctx) {
   if(i.type===3 && command==='pick' && choices[action]){
     return Response.json({type:4,data:{flags:64,components:[row({type:3,custom_id:base+action+':'+channel,placeholder:titles[action],options:choices[action].map(value=>({label:value,value}))})]}});
   }
-  const prompts={feedback:'What did you find or what do you need?',note:'What happened?',testing:'Build and steps to test',rename:'New thread title',duplicate:'Original Discord thread link or ID'};
+  const prompts={question:'What do you need from the reporter?',feedback:'What did you find or what do you need?',note:'What happened?',testing:'Build and steps to test',rename:'New thread title',duplicate:'Original Discord thread link or ID'};
   if(i.type===3 && prompts[action]){
-    return Response.json({type:9,data:{title:titles[action]||'Give feedback',custom_id:base+action+':'+channel,components:[row({type:4,custom_id:'value',label:prompts[action],style:['note','testing','feedback'].includes(action)?2:1,required:true,max_length:action==='rename'?100:action==='duplicate'?200:1500})]}});
+    return Response.json({type:9,data:{title:titles[action]||'Give feedback',custom_id:base+action+':'+channel,components:[row({type:4,custom_id:'value',label:prompts[action],style:['note','testing','feedback','question'].includes(action)?2:1,required:true,max_length:action==='rename'?100:action==='duplicate'?200:1500})]}});
   }
   const value=['tags','removeTags'].includes(action)?i.data.values:i.type===5?i.data.components?.[0]?.components?.[0]?.value?.trim():i.data.values?.[0];
   if(prompts[action] && (!value||i.type!==5) || choices[action]&&!choices[action].includes(value))return ephemeral('Choose a valid value.');
@@ -101,6 +103,15 @@ export async function caseAction(storage,env,b){
   if(!record||record.platform!==platform)return result('This ticket could not be verified.');
   if(['feedback','fulfilled'].includes(action)&&actor!==user)return result('Only the reporter can respond.');
   const thread=await getReportThread(env,channel);
+  if(action==='overview'){
+    const status=Object.keys(statusColor).find(name=>thread.applied_tags.includes(supportTags[name])) || 'No status tag';
+    const summary=['**Report overview**', 'Status: '+status+(thread.thread_metadata?.archived?' (archived)':''),
+      'Assigned to: '+(record.assignee?' <@'+record.assignee+'>':'Unassigned'), 'Priority: '+(record.priority??'Unset')];
+    if(record.duplicate)summary.push('Original thread: <#'+record.duplicate+'>');
+    const diagnostics=await storage.get('latest-diagnostics:'+channel);
+    if(diagnostics)summary.push('[Open latest private diagnostics]('+diagnostics+')');
+    return result(summary.join('\n'));
+  }
   const reopening=action==='status'&&value==='Open';
   if(thread.thread_metadata?.locked)return result('A moderator locked this thread. Unlock it in Discord first.');
   if((thread.applied_tags.includes(supportTags.Closed)||thread.thread_metadata?.archived)&&!reopening&&!(action==='status'&&value==='Closed'))
@@ -150,15 +161,15 @@ export async function caseAction(storage,env,b){
     if(tags.length>5)return result('Remove a forum tag to make room for the status.');
     await discordTags(env,'/channels/'+channel,{applied_tags:tags,...(reopening&&thread.thread_metadata?.archived?{archived:false}:{})});
     message=action==='fulfilled'?'The reporter marked this request fulfilled.':action==='working'?'<@'+actor+'> is working on this report.':'Status changed to '+status+'.';
-  }else if(action==='testing')message='<@'+user+'>';
+  }else if(action==='testing'||action==='question')message='<@'+user+'>';
   else if(action==='feedback')message='Feedback from <@'+actor+'>\n'+value;
   else if(action==='note')message='Additional report from <@'+actor+'>\n'+value;
   else return result('Unknown action.');
   if(Object.keys(patch).length)await storage.transaction(async tx=>tx.put(key,{...await tx.get(key),...patch}));
   const payload={content:message,nonce:b.interaction,enforce_nonce:true,
-    allowed_mentions:{parse:[],users:action==='testing'?[user]:action==='assign'?[value]:[]}};
-  if(action==='testing'){
-    const text=['**Waiting for user testing**',value,'','Choose **Give feedback** to share your results, or **My request is fulfilled** to close the report.'].join('\n');
+    allowed_mentions:{parse:[],users:['testing','question'].includes(action)?[user]:action==='assign'?[value]:[]}};
+  if(action==='testing'||action==='question'){
+    const text=[action==='testing'?'**Waiting for user testing**':'**Staff need more information**',value,'','Choose **Give feedback** to share your results, or **My request is fulfilled** to close the report.'].join('\n');
     delete payload.content;
     Object.assign(payload,supportCard(message,text,[reporterButtons(user,platform,channel)]));
   }else if(action==='feedback'||action==='note'){

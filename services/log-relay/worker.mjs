@@ -443,6 +443,7 @@ export class Reports {
         const response = {sent: true, reference: body.reference, threadURL: `https://discord.com/channels/${hook.guild_id}/${message.channel_id}/${message.id}`};
         await this.ctx.storage.transaction(async storage => {
           if (!existingThread) await storage.put('thread:' + message.channel_id, {id:message.channel_id, title, platform, created:now,reporter:name});
+          await storage.put('latest-diagnostics:'+message.channel_id,uncertain.privateURL);
           await storage.put(key, {status: 200, result: response, at: now});
           await storage.put(referenceKey(platform, body.reference), {threadURL:response.threadURL, ...(this.env.DISCORD_BOT_TOKEN && {botPublic:true}), ...(uncertain.botPrivate && {botPrivateURL:uncertain.privateURL})});
           await storage.put('dashboard-pending:'+platform+':'+body.reference.toUpperCase(),{platform,userID:body.user.id,reference:body.reference.toUpperCase(),title,reporter:name,created:now,threadURL:response.threadURL});

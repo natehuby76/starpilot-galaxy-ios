@@ -106,3 +106,31 @@ test('closing archives after the status card and reopening restores the same thr
   await act('status','Open','3');
   assert.deepEqual(events.slice(3),[{applied_tags:['42','1565236988913913887'],archived:false},0x3498db]);
 });
+
+test('the overview is staff-only and reads archived tickets without posting',async t=>{
+  const denied=await (await caseInteraction(interaction('overview:4','1'),env)).json();
+  assert.match(denied.data.content,/Sage/);
+  const data=new Map([['thread:4',{platform:'ios',priority:'0',assignee:'3'}],['latest-diagnostics:4','https://discord.com/channels/1/10/20']]);
+  t.mock.method(globalThis,'fetch',async(url,options)=>{
+    assert.equal(options.method,'GET');
+    return Response.json({id:'4',type:11,parent_id:supportForum,applied_tags:[],thread_metadata:{archived:true}});
+  });
+  const summary=await (await caseAction({get:k=>data.get(k)},env,{channel:'4',platform:'ios',action:'overview'})).json();
+  assert.match(summary.message,/archived/);
+  assert.match(summary.message,/Priority: 0/);
+  assert.match(summary.message,/channels\/1\/10\/20/);
+});
+
+test('asking a question pings only the reporter and offers feedback',async t=>{
+  const data=new Map([['thread:4',{platform:'ios'}]]);
+  const storage={get:k=>data.get(k),put:(k,v)=>data.set(k,v),transaction:fn=>fn(storage)};
+  let message;
+  t.mock.method(globalThis,'fetch',async(url,options)=>{
+    if(options.method==='POST'){message=JSON.parse(options.body);return Response.json({id:'9'});}
+    return Response.json({id:'4',type:11,parent_id:supportForum,applied_tags:[]});
+  });
+  await caseAction(storage,env,{channel:'4',platform:'ios',user:'1',actor:'3',action:'question',interaction:'123',value:'Which build?'});
+  assert.deepEqual(message.allowed_mentions,{parse:[],users:['1']});
+  assert.match(JSON.stringify(message.components),/Which build/);
+  assert.match(JSON.stringify(message.components),/case:1:ios:feedback:4/);
+});
