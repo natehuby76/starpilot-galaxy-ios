@@ -65,7 +65,11 @@ export function reportDetails(message,bot){
   const parts=[...embeds.flatMap(embed=>[body(embed.title),body(embed.description)]),
     ...fields.filter(f=>!metadata.test(f.name)).map(f=>body(f.value))].filter(Boolean);
   const observed=body(fields.find(f=>/^observed behavio[u]?r$/i.test(f.name.trim()))?.value)||parts[0];
-  return {reporter,observed,summary:parts.join('\n')};
+  const opening=body((message.content||'').replace(/^<@!?\d+>/,'').trim());
+  const sections=[opening,...embeds.map(embed=>body(embed.description)),
+    ...fields.filter(field=>!metadata.test(field.name)&&body(field.value))
+      .map(field=>'**'+clean(field.name)+'**\n'+body(field.value))].filter(Boolean);
+  return {reporter,observed,summary:[opening,...parts].filter(Boolean).join('\n'),reportText:sections.join('\n\n')};
 
 }
 async function offer(store,env,thread,manual=false){
@@ -89,7 +93,7 @@ async function offer(store,env,thread,manual=false){
     });
     if(!reserved)return false;
     const buttons={type:1,components:[['leave','Leave as is',2],['move','Move to Companion Logs',1]].map(([action,label,style])=>({type:2,style,label,custom_id:'refer:'+action+':'+thread.id}))};
-    const reviewers=[...new Set([env.REPORT_MAINTAINER_ID,env.ANDROID_REPORT_MAINTAINER_ID].filter(id))];
+    const reviewers=[...new Set([env.REPORT_MAINTAINER_ID,env.ANDROID_REPORT_MAINTAINER_ID,env.FIRESTAR_DISCORD_USER_ID].filter(id))];
     const text=['**Possible '+record.category+' report**',record.evidence,'','[Open driving report]('+urlFor(thread.id)+')',
       reviewers.map(user=>'<@'+user+'>').join(' ')].filter(Boolean).join('\n');
     const card=supportCard('',text,[],[buttons]);
@@ -150,8 +154,12 @@ export async function referralStore(path,request,store,env){
   const tags=[supportTags.Open];
   if(reportKind==='controller'&&id(env.CONTROLLER_FORUM_TAG_ID))tags.push(env.CONTROLLER_FORUM_TAG_ID);
   else if(reportKind==='starport'||/android|iphone|carplay|\bios\b/i.test(record.observed))tags.push(supportTags[platform==='ios'?'iOS':'Android']);
-  const card=supportCard('','**'+record.category+' support**\n'+record.observed.slice(0,900)+'\n\n[Original driving report]('+urlFor(source)+')',caseButtons(record.reporter,platform));
-  const receipt=await botPost(env,supportForum,{...card,thread_name:title,applied_tags:tags,allowed_mentions:{parse:[]}});
+  const recipients=[...new Set([record.reporter,env.REPORT_MAINTAINER_ID,env.ANDROID_REPORT_MAINTAINER_ID].filter(id))];
+  const mentions=recipients.map(user=>'<@'+user+'>').join(' ');
+  const original=record.reportText||record.summary||record.observed;
+  const excerpt=original.length>3200?original.slice(0,3199)+'…':original;
+  const card=supportCard('',mentions+'\n\n**'+record.category+' support**\n'+excerpt+'\n\n[Original driving report]('+urlFor(source)+')',caseButtons(record.reporter,platform));
+  const receipt=await botPost(env,supportForum,{...card,thread_name:title,applied_tags:tags,allowed_mentions:{parse:[],users:recipients}});
   if(!receipt.ok){
     if(receipt.status>=400&&receipt.status<500)await store.put(key,record);
     return Response.json({message:'Discord did not confirm the Companion ticket. Check the forum before retrying.'});
@@ -183,16 +191,18 @@ async function finishMove(store,env,key,record){
     const closed=tags.filter(tag=>tag.name.trim().toLowerCase()==='closed');
     if(closed.length>1)throw Error('The driving forum has multiple Closed tags.');
     const patch={archived:true};
-    if(closed.length){
-      const open=tags.filter(tag=>['open','in progress'].includes(tag.name.trim().toLowerCase())).map(tag=>tag.id);
-      const applied=thread.applied_tags.filter(tag=>!open.includes(tag));
-      if(!applied.includes(closed[0].id))applied.push(closed[0].id);
-      if(applied.length>5)throw Error('The driving thread has no room for its Closed tag.');
-      if(applied.length!==thread.applied_tags.length||applied.some(tag=>!thread.applied_tags.includes(tag)))patch.applied_tags=applied;
-    }
+    const remove=tags.filter(tag=>{
+      const name=tag.name.trim().toLowerCase();
+      return /^(?:[^a-z0-9]*)(?:waiting for dev(?:eloper)?s?)\s*$/.test(name)
+        || (closed.length && ['open','in progress'].includes(name));
+    }).map(tag=>tag.id);
+    const applied=thread.applied_tags.filter(tag=>!remove.includes(tag));
+    if(closed.length&&!applied.includes(closed[0].id))applied.push(closed[0].id);
+    if(applied.length>5)throw Error('The driving thread has no room for its Closed tag.');
+    if(applied.length!==thread.applied_tags.length||applied.some(tag=>!thread.applied_tags.includes(tag)))patch.applied_tags=applied;
     if(!thread.thread_metadata?.archived || patch.applied_tags){
       const updated=await discordTags(env,path,patch);
-      if(updated.id!==record.source || !updated.thread_metadata?.archived || (closed.length&&!updated.applied_tags?.includes(closed[0].id)))
+      if(updated.id!==record.source || !updated.thread_metadata?.archived || updated.applied_tags?.some(tag=>remove.includes(tag)) || (closed.length&&!updated.applied_tags?.includes(closed[0].id)))
         throw Error('Discord did not confirm the close.');
     }
     await store.put(key,{...record,state:'moved',sourceClosed:true});
