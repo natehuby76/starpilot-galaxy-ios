@@ -145,6 +145,16 @@ async function postWebhook(raw,threadID,body) {
 
 export async function driveObject(request,storage,env) {
   const action=new URL(request.url).pathname;
+  if(action==='/drive/authorize-starport'){
+    const approval=await request.json();
+    await storage.setAlarm(approval.expires);
+    return storage.transaction(async tx=>{
+      const existing=await tx.get('drive');
+      if(existing && existing.userID!==approval.userID)return reply({error:'Already linked to another Discord account.'},409);
+      if(!existing)await tx.put('drive',approval);
+      return reply({approved:true});
+    });
+  }
   if(action==='/drive/issue'){
     const record=await request.json();
     record.downloadToken=hex(crypto.getRandomValues(new Uint8Array(32)));
@@ -161,6 +171,7 @@ export async function driveObject(request,storage,env) {
     return new Response(stored.body,{headers:{'Content-Type':'application/octet-stream','Content-Disposition':'attachment; filename="'+record.fileName+'"','Cache-Control':'private, no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff'}});
   }
   if(!record||record.expires<=Date.now())return reply({error:'This link expired. Request a new one.'},410);
+  if(action==='/drive/starport-approval' && record.kind==='starport-approval')return reply({code:record.code});
   if(action==='/drive/code' && record.kind==='support-code') return reply({token:record.token,user:record.user});
   if(record.done)return action==='/drive/send'?reply({sent:true,reference:record.reference}):reply({error:'Drive logs already received. Reference: '+record.reference},410);
   if(action==='/drive/invite'){
@@ -191,7 +202,7 @@ export async function driveObject(request,storage,env) {
         record.kind==='starport' ? '**StarPort / Android Auto logs requested**' : record.kind==='controller' ? '**Physical controller logs requested**' : '**Phone app connection logs requested**',
         'Start here. Tap the button below, sign in with Discord, and copy your code.'
       ].join('\n') : '**Drive logs requested**\nUse the link below to submit the drive logs privately for this report.';
-      const remaining = record.kind==='starport' ? '2. Open **Galaxy → Logs & Diagnostics → StarPort Logs**. Enter the code, check the report title, describe what happened and press **Send StarPort logs**. Only staff receive the ZIP.' : capture ? [
+      const remaining = record.kind==='starport' ? '2. Open **Galaxy → Logs & Diagnostics → StarPort Logs**. Choose **Enter a Discord request code**, paste the code, tap **Find report**, check the title, describe what happened and press **Send StarPort logs**. Only staff receive the ZIP.' : capture ? [
         '2. Open Galaxy → Galaxy Access & Connections → '+page+' → Connection logs. Choose **Send to existing Discord thread**.',
         '3. Enter the code, tap **Find report**, then **Capture and send**.',
         '',

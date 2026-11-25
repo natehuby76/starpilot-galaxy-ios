@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {runInNewContext} from 'node:vm';
 import {test} from 'node:test';
 import worker from './worker.mjs';
+import {driveObject} from './drive-logs.mjs';
 import {diagnosticZip} from './diagnostic-zip.mjs';
 
 const base = 'https://starpilot-log-relay.nathan-g-hubbard.workers.dev';
@@ -27,6 +28,12 @@ test('Galaxy browser OAuth returns to a private report form and submits only the
   const runtime = {...env,REPORTS:{
     idFromName(id) { assert.ok(id==='555' || id.startsWith('drive-log:')); return id; },
     get(id) { return {async fetch(path, options) {
+      if(id.startsWith('drive-log:starport-approval:')){
+        if(!approvals.has(id))approvals.set(id,new Map());
+        const map=approvals.get(id);
+        const storage={get:k=>map.get(k),put:(k,v)=>map.set(k,v),transaction:fn=>fn(storage),setAlarm:()=>{}};
+        return driveObject(new Request(path,options),storage,runtime);
+      }
       if(id.startsWith('drive-log:code:')){
         if(path.endsWith('/issue')) {codes.set(id, JSON.parse(options.body));return Response.json({created:true});}
         return codes.has(id)?Response.json(codes.get(id)):Response.json({}, {status:410});
@@ -48,7 +55,7 @@ test('Galaxy browser OAuth returns to a private report form and submits only the
     }}; },
   }};
   const open = (path, options) => worker.fetch(new Request(base+path,options),runtime);
-  const codes=new Map();
+  const codes=new Map(), approvals=new Map();
   let originalZip, challenge, newRequest, owner='555';
   try {
     const landing=await (await open(web)).text();
@@ -167,6 +174,20 @@ test('Galaxy browser OAuth returns to a private report form and submits only the
     assert.equal((await upload(starCode,new Uint8Array(30))).status,400);
     assert.equal((await upload(starCode,originalZip)).status,200);
     assert.equal((await device({action:'send',code:starCode,archive})).status,400);
+    const verifier='d'.repeat(64);
+    const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(verifier));
+    const authPath=web+'/starport-auth/'+Buffer.from(digest).toString('hex');
+    const claim=v=>open(web+'/starport-claim',{method:'POST',headers:{'X-StarPort-Verifier':v}});
+    assert.equal((await claim(verifier)).status,410);
+    assert.match((await open(authPath)).headers.get('Location'),/sign-in/);
+    assert.equal((await open(authPath,{method:'POST',headers:{Cookie:session,Origin:'https://other.example'}})).status,403);
+    const approval=await open(authPath,{method:'POST',headers:{Cookie:session,Origin:base}});
+    assert.match(await approval.text(),/Return to Galaxy/);
+    assert.equal((await claim('e'.repeat(64))).status,410);
+    const grant=await (await claim(verifier)).json();
+    assert.equal((await upload(grant.code,originalZip)).status,200);
+    assert.equal(newRequest.threadID,undefined);
+
   } finally { globalThis.fetch = originalFetch; }
 });
 
