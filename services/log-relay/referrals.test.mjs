@@ -88,12 +88,21 @@ test('Move closes only after registration and retries the same destination on a 
   const destination='1574085782967292090';
   const rows=new Map([['source:'+sample,{DRIVING_FORUM_ID:forum,DRIVING_REPORT_BOT_ID:'123456789123456789'}],['report:'+source,{source,state:'created',destination,reporter:'987654321987654321'}]]);
   const store={get:k=>rows.get(k),put:(k,v)=>rows.set(k,v),transaction:fn=>fn(store)};
-  let registered=false,allowClose=false,patches=0;
+  let registered=false,allowClose=false,allowNotice=false,notices=0,patches=0;
   const env={DRIVING_SAMPLE_THREAD_ID:sample,COMPANION_REVIEW_THREAD_ID:review,DISCORD_BOT_TOKEN:'fixture',REPORTS:{idFromName:n=>n,get:()=>({fetch:()=>new Response('',{status:registered?200:503})})}};
   t.mock.method(globalThis,'fetch',async(url,opts)=>{
     const path=new URL(url).pathname.replace('/api/v10','');
     if(path==='/channels/'+review)return Response.json({type:12,guild_id:guild});
     if(path==='/channels/'+forum)return Response.json({available_tags:[{id:'1',name:'OPEN'},{id:'3',name:'CLOSED'},{id:'4',name:'Waiting for Dev'}]});
+    if(path==='/channels/'+source+'/messages'){
+      assert.equal(opts.method,'POST');
+      const notice=JSON.parse(opts.body);
+      assert.ok(notice.components[0].components[0].content.includes(destination));
+      assert.deepEqual(notice.allowed_mentions,{parse:[]});
+      if(!allowNotice)return new Response('',{status:403});
+      notices++;
+      return Response.json({id:'987654321987654320',channel_id:source});
+    }
     assert.equal(path,'/channels/'+source);
     if(opts.method==='GET')return Response.json({type:11,guild_id:guild,parent_id:forum,id:source,applied_tags:['1','2','4'],thread_metadata:{archived:false}});
     assert.equal(opts.method,'PATCH');
@@ -105,11 +114,15 @@ test('Move closes only after registration and retries the same destination on a 
   await assert.rejects(click(),/register/);
   assert.equal(patches,0);
   registered=true;
+  assert.match((await (await click()).json()).message,/notice/);
+  assert.equal(patches,0);
+  allowNotice=true;
   assert.match((await (await click()).json()).message,/could not be confirmed/);
   allowClose=true;
   assert.match((await (await click()).json()).message,/Driving thread closed/);
   await click();
   assert.equal(patches,2);
+  assert.equal(notices,1);
   assert.equal(rows.get('report:'+source).destination,destination);
 });
 

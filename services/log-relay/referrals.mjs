@@ -200,7 +200,18 @@ async function finishMove(store,env,key,record){
     if(closed.length&&!applied.includes(closed[0].id))applied.push(closed[0].id);
     if(applied.length>5)throw Error('The driving thread has no room for its Closed tag.');
     if(applied.length!==thread.applied_tags.length||applied.some(tag=>!thread.applied_tags.includes(tag)))patch.applied_tags=applied;
-    if(!thread.thread_metadata?.archived || patch.applied_tags){
+    let postedNotice=false;
+    if(!record.moveNotice){
+      const notice=supportCard('','**Moved to Companion Logs**\nStaff moved this report to Companion support. Your original report is linked there. Please post updates and reply to staff in the new ticket.\n\n'+link,[]);
+      const sent=await botPost(env,record.source,{...notice,flags:notice.flags|4096,allowed_mentions:{parse:[]},nonce:'move-'+record.source,enforce_nonce:true});
+      if(!sent.ok)return Response.json({message:'Companion ticket created. Discord did not confirm the notice in the original thread. Check Send Messages in Threads and retry Move. '+link});
+      const receipt=await sent.json();
+      if(!id(receipt.id)||receipt.channel_id!==record.source)throw Error('Missing move notice receipt');
+      record={...record,state:'moved',moveNotice:receipt.id};
+      await store.put(key,record);
+      postedNotice=true;
+    }
+    if(postedNotice || !thread.thread_metadata?.archived || patch.applied_tags){
       const updated=await discordTags(env,path,patch);
       if(updated.id!==record.source || !updated.thread_metadata?.archived || updated.applied_tags?.some(tag=>remove.includes(tag)) || (closed.length&&!updated.applied_tags?.includes(closed[0].id)))
         throw Error('Discord did not confirm the close.');
