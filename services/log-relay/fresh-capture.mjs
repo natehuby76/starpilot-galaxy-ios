@@ -1,12 +1,12 @@
 import {galaxyLogSteps} from './galaxy-log-request.mjs';
 // A Discord request carries only its ticket identifier into the local Galaxy page.
-export async function freshCapturePage({request, user, ticket, token, base, diagnosticText, bounded, submit, escape, issueCode}) {
+export async function freshCapturePage({request, user, ticket, token, base, diagnosticText, bounded, submit, escape}) {
   const path = '/report/galaxy/fresh/' + token;
   const starport=ticket.kind==='starport';
   const label = starport?'StarPort':ticket.kind === 'controller' ? 'controller' : 'connection';
   const nonce = crypto.randomUUID().replaceAll('-', '');
   function screen(content, status = 200) {
-    return new Response('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Send fresh logs</title><style>:root{color-scheme:dark;font:16px/1.55 system-ui;background:#100e18;color:#f4efff}*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top,#312348,transparent 70%);min-height:100vh;padding:clamp(1rem,5vw,3rem)}main{margin:auto;max-width:34rem;background:#201b30;border:1px solid #493d60;border-radius:1.25rem;padding:clamp(1rem,4vw,2rem)}h1{font-size:1.6rem;line-height:1.2;margin:.3rem 0 1rem}p{color:#ddd4ec}a,summary{color:#d9bfff}button{background:#c9a6ff;color:#20122f;border:0;border-radius:1rem;padding:.65rem 1.1rem;font:inherit;font-weight:650;cursor:pointer}input{font:inherit;max-width:100%}details{margin-top:1.25rem;border-top:1px solid #493d60;padding-top:1rem}summary{cursor:pointer}.code{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.8rem;padding:1rem;border:1px solid #715291;background:#181322;border-radius:1rem}.code strong{font:600 clamp(1rem,5vw,1.5rem) ui-monospace,monospace;user-select:all}.brand{color:#d1affb;font-weight:650}button:focus-visible,a:focus-visible,summary:focus-visible{outline:3px solid #efe4ff;outline-offset:3px}</style><main><div class="brand">✦ StarPilot Support</div><h1>Send fresh '+label+' logs</h1>'+content+'</main></html>', {
+    return new Response('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Send fresh logs</title><style>:root{color-scheme:dark;font:16px/1.55 system-ui;background:#100e18;color:#f4efff}*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top,#312348,transparent 70%);min-height:100vh;padding:clamp(1rem,5vw,3rem)}main{margin:auto;max-width:34rem;background:#201b30;border:1px solid #493d60;border-radius:1.25rem;padding:clamp(1rem,4vw,2rem)}h1{font-size:1.6rem;line-height:1.2;margin:.3rem 0 1rem}p{color:#ddd4ec}a,summary{color:#d9bfff}button{background:#c9a6ff;color:#20122f;border:0;border-radius:1rem;padding:.65rem 1.1rem;font:inherit;font-weight:650;cursor:pointer}input{font:inherit;max-width:100%}details{margin-top:1.25rem;border-top:1px solid #493d60;padding-top:1rem}summary{cursor:pointer}.brand{color:#d1affb;font-weight:650}button:focus-visible,a:focus-visible,summary:focus-visible{outline:3px solid #efe4ff;outline-offset:3px}</style><main><div class="brand">✦ StarPilot Support</div><h1>Send fresh '+label+' logs</h1>'+content+'</main></html>', {
       status, headers:{'Content-Type':'text/html;charset=utf-8','Cache-Control':'no-store','Referrer-Policy':'same-origin','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; script-src 'nonce-"+nonce+"'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"}
     });
   }
@@ -15,18 +15,12 @@ export async function freshCapturePage({request, user, ticket, token, base, diag
     if (!user) return screen(signIn);
     if (user.id !== ticket.userID) return screen('Open this request with the Discord account that filed the report.',403);
     const guide=ticket.threadID?'<ol>'+galaxyLogSteps(ticket).map(step=>'<li>'+escape(step)+'</li>').join('')+'</ol>':'';
-    let deviceInstructions = "";
-    if (ticket.threadID || starport) {
-      const code=await issueCode();
-      const codeCard='<div class="code"><strong>'+code.match(/.{4}/g).join(' ')+'</strong><button id="copy-code" type="button">Copy code</button></div><p id="copy-status" role="status"></p>';
-      const copyScript='<script nonce="'+nonce+'">const copy=document.getElementById("copy-code");copy.onclick=async()=>{const el=copy.previousElementSibling;try{await navigator.clipboard.writeText(el.textContent.replaceAll(" ",""));copy.textContent="Copied";document.getElementById("copy-status").textContent="Ready to paste into Galaxy."}catch{const range=document.createRange();range.selectNodeContents(el);const selection=getSelection();selection.removeAllRanges();selection.addRange(range);document.getElementById("copy-status").textContent="Code selected. Use Copy on your device."}};</script>';
-      if(starport)return screen(guide+(guide?'<details><summary>Earlier Galaxy versions</summary>':'')+'<p>'+escape(ticket.title||'New StarPort report')+'</p>'+codeCard+'<p>This private code expires in 10 minutes.</p><p>In <strong>Galaxy → Logs &amp; Diagnostics → StarPort Logs</strong>, paste the code, check the report title, describe what happened and press <strong>Send StarPort logs</strong>.</p><p>Your description goes to the support thread. Only staff receive the session ZIP.</p>'+copyScript+(guide?'</details>':''));
-      const panel=ticket.kind==='controller'?'Bluetooth':'Networks';
-      deviceInstructions = '<p>'+escape(ticket.title)+'</p><p>Your private code expires in 10 minutes.</p>'+codeCard+'<p>If the phone app cannot reach Galaxy, use the comma screen or open Galaxy in a browser. For browser access, connect to the same Wi-Fi as the comma or join its hotspot, then open the <strong>Local Galaxy address</strong> shown on the comma.</p><p>In <strong>Galaxy → Galaxy Access &amp; Connections → '+panel+'</strong>. Scroll to <strong>Connection logs</strong> and choose <strong>Send to existing Discord thread</strong>.</p><p>The comma needs internet to find the report and send logs. If it is offline, connect it to Wi-Fi with internet or to your phone’s hotspot.</p><p>Enter the code, tap <strong>Find report</strong>, check the title, then tap <strong>Capture and send</strong>. Only support staff receive the logs.</p>';
-      deviceInstructions=guide+'<details><summary>Earlier Galaxy versions</summary>'+deviceInstructions+'</details>';
+    let deviceInstructions=guide || '<p>Open Galaxy → Logs &amp; Diagnostics → Get help. Choose your topic, describe the issue and tap Send. Sign in with Discord and select a new or existing ticket.</p>';
+    if(starport)return screen(deviceInstructions);
+    if(ticket.threadID){
       deviceInstructions += '<details><summary>Comma offline? Save a ZIP and send it later</summary><ol><li>On your phone, join the comma’s hotspot or the same Wi-Fi. Open the Local Galaxy address shown on the comma in your browser. Stay on that Wi-Fi even if it has no internet.</li><li>Open the same topic under <strong>Logs &amp; Diagnostics → Get help</strong> and choose <strong>Download ZIP instead</strong>. Save the file on your phone.</li><li>Once your phone has internet, reopen <strong>Offline ZIP help</strong> in the original Discord thread, expand this section, and select the saved ZIP. The comma can stay offline. If the request link expired, ask support for a fresh link in that thread.</li></ol><form id="offline-upload" method="post"><label>Diagnostic ZIP <input id="offline-file" type="file" accept=".zip,application/zip" required></label><input type="hidden" name="archive"><button>Review ZIP for this report</button><p role="status" id="offline-status"></p></form></details>';
 
-      deviceInstructions+=copyScript;
+
     }
     return screen(deviceInstructions+(deviceInstructions?'<details><summary>Use Galaxy in a web browser</summary>':'')+'<p>'+escape(ticket.title || 'New Galaxy support report')+'</p><button id="open-galaxy" type="button" hidden>Open Galaxy</button><p id="missing-address">This browser did not receive your Galaxy address. If Galaxy is already open in your browser, go back to that tab and start from <strong>Send to Discord support</strong>. You can also use the local Galaxy address shown on your comma.</p><details><summary>Use a different Galaxy address</summary><form id="launch"><label>Galaxy address<input id="address" required placeholder="192.168.1.17:8082"></label><button>Open address</button><p id="status" role="status"></p></form></details><script nonce="'+nonce+'">'+
       `const field=document.getElementById('address');
@@ -61,7 +55,7 @@ export async function freshCapturePage({request, user, ticket, token, base, diag
         }
       } catch {try {localStorage.removeItem('galaxy-local-address');} catch {}}
       const openGalaxy=url=>{
-        url.pathname='/';url.search='';url.hash='/logs/help/fresh/${ticket.kind}/${token}';location.assign(url.href);
+        url.pathname='/';url.search='';url.hash='/logs/help/${ticket.kind}';location.assign(url.href);
       };
       primary.onclick=()=>{if(destination)openGalaxy(destination);};
       document.getElementById('launch').onsubmit=e=>{

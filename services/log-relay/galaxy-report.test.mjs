@@ -105,9 +105,7 @@ test('Galaxy browser OAuth returns to a private report form and submits only the
     const ticket=web+'/fresh/'+'b'.repeat(64);
     assert.match(await (await open(ticket)).text(),/Sign in with Discord/);
     const launch = await (await open(ticket,{headers:{Cookie:session}})).text();
-    assert.match(launch,/Send to existing Discord thread/);
-    assert.ok(launch.includes('Galaxy → Galaxy Access &amp; Connections → Bluetooth</strong>'));
-    assert.ok(launch.includes('Capture and send'));
+    assert.doesNotMatch(launch,/Copy code|Find report|Earlier Galaxy versions/);
     assert.ok(launch.includes('Logs &amp; Diagnostics → Get help → Controller'));
     assert.ok(launch.includes('Download ZIP instead'));
     assert.ok(launch.includes('Review ZIP for this report'));
@@ -116,15 +114,10 @@ test('Galaxy browser OAuth returns to a private report form and submits only the
       let target;
       runInNewContext([...launch.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].at(-1)[1],{URL,document:{getElementById:id=>controls[id]},localStorage:{getItem:()=>saved},location:{assign:url=>{target=url;}}});
       controls['open-galaxy'].onclick();
-      assert.equal(target,expected && expected+'/#/logs/help/fresh/controller/'+'b'.repeat(64));
+      assert.equal(target,expected && expected+'/#/logs/help/controller');
     }
-    const code=launch.match(/<strong>([a-z0-9]{4}(?: [a-z0-9]{4}){2})<[/]strong>/)[1].replaceAll(' ','');
     const device=(body)=>open(web+'/device',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     assert.equal((await device({action:'check',code:'0'.repeat(12)})).status,410);
-    assert.deepEqual(await (await device({action:'check',code})).json(),{kind:'controller',title:'Controller report'});
-    owner='888';
-    assert.equal((await device({action:'check',code})).status,410);
-    owner='555';
     const archive=Buffer.from(await (await diagnosticZip(controllerLog,'bluetooth-log.json')).arrayBuffer()).toString('base64');
     const capture=new URLSearchParams({archive});
     const post=origin=>open(ticket,{method:'POST',body:capture,headers:{Origin:origin,Cookie:session}});
@@ -143,9 +136,6 @@ test('Galaxy browser OAuth returns to a private report form and submits only the
     assert.match(await (await post(base)).text(),/Return to your report/);
     assert.equal(sends.length,3);
     assert.deepEqual([sends[2].threadID,sends[2].reference,sends[2].platform,sends[2].controllerLog],['2',reference,'android',true]);
-    assert.equal((await device({action:'send',code,archive:'AAAA'})).status,400);
-    assert.deepEqual(await (await device({action:'send',code,archive,threadID:'999'})).json(),{sent:true});
-    assert.equal(sends.pop().threadID,'2');
     const newPath=web+'/new/connection';
     assert.match(await (await open(newPath)).text(),/Sign in with Discord/);
     const captureStart = await open(newPath,{headers:{Cookie:session}});
@@ -166,15 +156,11 @@ test('Galaxy browser OAuth returns to a private report form and submits only the
     assert.equal(sends[3].logs,'local access diagnostics');
     originalZip=new Uint8Array(await (await diagnosticZip('private session data','session.txt')).arrayBuffer());
     const upload=(code,body)=>open(web+'/starport/upload',{method:'POST',headers:{'Content-Type':'application/zip','X-Galaxy-Code':code,'X-StarPort-Note':'Black%20screen'},body});
-    assert.equal((await upload(code,originalZip)).status,410);
+    assert.equal((await upload('0'.repeat(12),originalZip)).status,410);
     const next=await open(web+'/new/starport',{method:'POST',headers:{Origin:base,Cookie:session}});
     const codePage=await (await open(next.headers.get('Location'),{headers:{Cookie:session}})).text();
-    assert.match(codePage,/Copy code/);
-    const starCode=codePage.match(/<strong>([a-z0-9]{4}(?: [a-z0-9]{4}){2})<[/]strong>/)[1].replaceAll(' ','');
-    assert.deepEqual(await (await device({action:'check',code:starCode})).json(),{title:'New StarPort report',kind:'starport'});
-    assert.equal((await upload(starCode,new Uint8Array(30))).status,400);
-    assert.equal((await upload(starCode,originalZip)).status,200);
-    assert.equal((await device({action:'send',code:starCode,archive})).status,400);
+    assert.doesNotMatch(codePage,/Copy code|paste the code/i);
+    assert.match(codePage,/Sign in with Discord/i);
     const verifier='d'.repeat(64);
     const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(verifier));
     const authPath=web+'/starport-auth/'+Buffer.from(digest).toString('hex');
