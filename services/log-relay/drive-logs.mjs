@@ -198,9 +198,10 @@ export async function driveObject(request,storage,env) {
       const capture = ['connection','controller','starport'].includes(record.kind);
       const page = record.kind === 'controller' ? 'Bluetooth' : 'Networks';
       const link = record.origin+(capture ? '/report/galaxy/fresh/' : '/drive/')+record.token;
+      const category={starport:'StarPort / Car Screen',controller:'Controller',connection:'Phone App'}[record.kind];
       const intro = capture ? [
         record.kind==='starport' ? '**StarPort / Android Auto logs requested**' : record.kind==='controller' ? '**Physical controller logs requested**' : '**Phone app connection logs requested**',
-        'Start here. Tap the button below, sign in with Discord, and copy your code.'
+        'Start here. In Galaxy, open **Logs & Diagnostics → Get help → '+category+'**. Describe the issue and send the logs. Open **Continue on Discord support** if prompted. Sign in, select this thread (**'+String(record.title||'').replace(/[\r\n]/g,' ').slice(0,100)+'**) and press **Post report**.'
       ].join('\n') : '**Drive logs requested**\nUse the link below to submit the drive logs privately for this report.';
       const codeSteps = record.kind==='starport' ? '2. Open **Galaxy → Logs & Diagnostics → StarPort Logs**. Choose **Enter a Discord request code**, paste the code, tap **Find report**, check the title, describe what happened and press **Send StarPort logs**. Only staff receive the ZIP.' : capture ? [
         '2. Open Galaxy → Galaxy Access & Connections → '+page+' → Connection logs. Choose **Send to existing Discord thread**.',
@@ -209,12 +210,11 @@ export async function driveObject(request,storage,env) {
         '**App won’t connect?** Use Galaxy on the comma, or open its Local Galaxy address in your phone’s browser on the same Wi-Fi.',
         '**Comma offline?** On your phone, open that local address and go to '+(record.kind==='controller'?'Bluetooth → Get help → Bluetooth Controller Support':'Networks → Connection logs')+' → **Manual ZIP download**. Capture and download the ZIP. Once your phone is online, reopen **Get my Galaxy code** and use the offline ZIP option to send it privately.'
       ].join('\n') : '';
-      const category={starport:'StarPort / Android Auto Support',controller:'Bluetooth Controller Support',connection:'Mobile App Support'}[record.kind];
-      const remaining = capture ? codeSteps+'\n\n**Using the new Galaxy reporting flow?** Open **Logs & Diagnostics → Get help → '+category+'**, describe the issue and tap **Send report**. Sign in, select this thread (**'+String(record.title||'').replace(/[\r\n]/g,' ').slice(0,100)+'**) and press **Post report**.' : codeSteps;
+      const remaining = capture ? '**Older Galaxy with a request-code field?** Use the button to copy your code.\n'+codeSteps : codeSteps;
       const reporter=/^\d{1,20}$/.test(record.userID) ? record.userID : null;
       const mention=reporter ? '<@'+reporter+'>' : '';
       const mentions={parse:[],users:reporter?[reporter]:[]};
-      const linkRow={type:1,components:[{type:2,style:5,label:capture?'Step 1 · Get my Galaxy code':'Submit drive logs',url:link}]};
+      const linkRow={type:1,components:[{type:2,style:5,label:capture?'Older Galaxy · Get my code':'Submit drive logs',url:link}]};
       const replies=reporter&&['ios','android'].includes(record.platform)?[reporterButtons(reporter,record.platform,threadID)]:[];
       if(env.DISCORD_BOT_TOKEN){
         result = await fetch('https://discord.com/api/v10/channels/'+threadID+'/messages',{

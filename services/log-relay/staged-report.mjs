@@ -15,9 +15,15 @@ export async function stageUpload(request,env,{base,bounded,diagnosticText}){
   try{
     const field=request.headers.get('X-Galaxy-Report') || '';
     if(field.length>12000)throw Error();
-    const input=JSON.parse(decodeURIComponent(field));
+    const input=field ? JSON.parse(decodeURIComponent(field)) : {
+      kind:request.headers.get('X-Galaxy-Kind'),
+      note:decodeURIComponent(request.headers.get('X-Galaxy-Note') || ''),
+      phone:request.headers.get('X-Galaxy-Platform'),
+    };
+    if(!field && !['ios','android'].includes(input.phone))throw Error();
     if(!Object.hasOwn(labels,input.kind)||typeof input.note!=='string'||!input.note.trim()||input.note.length>1000)throw Error();
     meta={kind:input.kind,note:input.note.trim()};
+    if(['ios','android'].includes(input.phone))meta.phone=input.phone;
     for(const key of ['model','car','branch','commit']){
       if(typeof input[key]==='string' && input[key].length<=160)meta[key]=input[key];
     }
@@ -65,7 +71,7 @@ export async function stageStorage(request,storage,env){
   const {user,threadID,platform}=await request.json();
   if(state.owner&&state.owner!==user.id)return json({error:'Open this report with the account that posted it.'},403);
   if(state.receipt)return json(state.receipt);
-  if(path==='/stage/preview')return json({note:state.note,kind:state.kind,model:state.model,car:state.car,branch:state.branch,commit:state.commit});
+  if(path==='/stage/preview')return json({phone:state.phone,note:state.note,kind:state.kind,model:state.model,car:state.car,branch:state.branch,commit:state.commit});
   if(path!=='/stage/post')return json({},404);
   const owner=env.REPORTS.get(env.REPORTS.idFromName(user.id));
   const target=threadID||'';
@@ -121,7 +127,7 @@ export async function claimPage(request,env,{base,user,token,escape}){
     const target=form.get('destination');
     const match=/^(ios|android):(\d{1,20})$/.exec(target);
     if(!['new','new-android'].includes(target)&&!match)return page('Select a destination.',400);
-    const result=await call('post',{threadID:match?.[2],platform:match?.[1]||(data.kind==='connection' && target!=='new-android'?'ios':'android')});
+    const result=await call('post',{threadID:match?.[2],platform:match?.[1]||(target==='new-android'?'android':data.phone || (data.kind==='connection'?'ios':'android'))});
     const response=await result.json();
     return result.ok?receipt(response.threadURL):page(escape(response.error),result.status);
   }
@@ -132,5 +138,5 @@ export async function claimPage(request,env,{base,user,token,escape}){
     if(!result.ok)return null;
     return (await result.json()).reports.map(t=>'<option value="'+platform+':'+escape(t.id)+'">'+escape(t.title)+'</option>').join('');
   }));
-  return page('<p>Signed in as <strong>'+escape(user.global_name||user.username)+'</strong></p><h2>'+labels[data.kind]+' report</h2><blockquote>'+escape(data.note)+'</blockquote><p>Your note appears in the thread. Only staff receive the ZIP and device details.</p><form method="post"><label>Post to<select name="destination"><option value="new">'+(data.kind==='connection'?'Create a new iOS support thread':'Create a new support thread')+'</option>'+(data.kind==='connection'?'<option value="new-android">Create a new Android support thread</option>':'')+lists.join('')+'</select></label>'+(lists.includes(null)?'<p>Some threads could not be loaded. Refresh to try again.</p>':'')+'<button>Post report</button></form>');
+  return page('<p>Signed in as <strong>'+escape(user.global_name||user.username)+'</strong></p><h2>'+labels[data.kind]+' report</h2><blockquote>'+escape(data.note)+'</blockquote><p>Your note appears in the thread. Only staff receive the ZIP and device details.</p><form method="post"><label>Post to<select name="destination"><option value="new">'+(data.phone?'Create a new '+(data.phone==='ios'?'iOS':'Android')+' support thread':data.kind==='connection'?'Create a new iOS support thread':'Create a new support thread')+'</option>'+(data.kind==='connection' && !data.phone?'<option value="new-android">Create a new Android support thread</option>':'')+lists.join('')+'</select></label>'+(lists.includes(null)?'<p>Some threads could not be loaded. Refresh to try again.</p>':'')+'<button>Post report</button></form>');
 }

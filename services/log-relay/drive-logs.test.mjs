@@ -134,7 +134,7 @@ for (const [kind,page] of [['controller','Bluetooth'],['connection','Networks']]
     assert.equal(invite.components[1].type,17);
     const [intro,firstStep,divider,instructions]=invite.components[1].components;
     assert.match(intro.content,/Start here/);
-    assert.equal(firstStep.components[0].label,'Step 1 · Get my Galaxy code');
+    assert.equal(firstStep.components[0].label,'Older Galaxy · Get my code');
     assert.equal(firstStep.components[0].url,url);
     assert.equal(divider.type,14);
     const text=instructions.content;

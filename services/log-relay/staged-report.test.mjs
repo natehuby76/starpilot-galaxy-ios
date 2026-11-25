@@ -75,3 +75,18 @@ test('wrong archive type, staging limit and expiry',async()=>{
   assert.equal((await stage('connection','connection-logs.txt')).response.status,429);
 });
 
+test('Nate-testing separate headers preserve the chosen Android app and decode the note',async()=>{
+  const {env,uploads}=setup();
+  const zip=await diagnosticZip('Synthetic diagnostic data','connection-logs.txt');
+  const response=await worker.fetch(new Request(base+'/report/galaxy/stage',{method:'POST',headers:{
+    'Content-Type':'application/zip','X-Galaxy-Kind':'connection','X-Galaxy-Platform':'android',
+    'X-Galaxy-Note':encodeURIComponent('[Android] Bluetooth café')
+  },body:zip}),env);
+  assert.equal(response.status,200);
+  const {claimUrl}=await response.json(),token=claimUrl.split('/').pop();
+  const posted=await claimPage(new Request(claimUrl,{method:'POST',headers:{Origin:base},
+    body:new URLSearchParams({destination:'new'})}),env,{base,token,user,escape:String});
+  assert.equal(posted.status,200);
+  assert.equal(uploads[0].meta.platform,'android');
+  assert.equal(uploads[0].meta.description,'[Android] Bluetooth café');
+});
