@@ -123,8 +123,8 @@ test('dashboard can issue a link for a saved report without bot access',async t=
   assert.equal(f.posts.length,1);
 });
 
-for (const [kind,page] of [['controller','Bluetooth'],['connection','Networks']]) {
-  test('bot posts the selected '+kind+' code button in the requesting thread',async t=>{
+for (const [kind,page] of [['controller','Controller'],['connection','Phone App'],['starport','StarPort / Car Screen']]) {
+  test('bot posts the selected '+kind+' Galaxy instructions in the requesting thread',async t=>{
     const f=fixture(t);
     const {url}=await (await issueDriveLink(f.env,'777','https://example.com',{userID:'555',platform:'ios'},kind)).json();
     const token=new URL(url).pathname.split('/').pop();
@@ -133,16 +133,13 @@ for (const [kind,page] of [['controller','Bluetooth'],['connection','Networks']]
     assert.equal(invite.components[0].content,'<@555>');
     assert.equal(invite.flags,32768);
     assert.equal(invite.components[1].type,17);
-    const [intro,firstStep,divider,instructions]=invite.components[1].components;
-    assert.match(intro.content,/Start here/);
-    assert.equal(firstStep.components[0].label,'Older Galaxy · Get my code');
-    assert.equal(firstStep.components[0].url,url);
+    const [intro,divider,help]=invite.components[1].components;
+    assert.ok(intro.content.includes('Logs & Diagnostics → Get help → '+page));
+    assert.match(intro.content,/Post to, select “test thread” and tap Post report/);
     assert.equal(divider.type,14);
-    const text=instructions.content;
-    assert.match(text,/Capture and send/);
-    assert.match(text,/Manual ZIP download/);
+    assert.match(help.content,/Local Galaxy address/);
+    assert.doesNotMatch(JSON.stringify(invite),/Get my code|Find report|Capture and send|Older Galaxy/i);
     assert.deepEqual(invite.allowed_mentions.users,['555']);
-    assert.ok(text.includes('Galaxy → Galaxy Access & Connections → '+page+' → Connection logs'));
     assert.equal(invite.components[2].components[0].label,'Give feedback');
     assert.match(url,/[/]report[/]galaxy[/]fresh[/]/);
     assert.deepEqual(invite.allowed_mentions.parse,[]);

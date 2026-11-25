@@ -126,6 +126,10 @@ export async function caseAction(storage,env,b){
     const link=await issueDriveLink(env,channel,b.origin,{userID:user,platform},action);
     const data=await link.json();
     if(!link.ok)return result(data.error||'Could not create the request.');
+    await storage.transaction(async tx=>{
+      const latest=await tx.get(key);
+      await tx.put(key,{...latest,requestedLogKinds:{...latest.requestedLogKinds,[action]:Date.now()+86400000}});
+    });
     const sent=await sendDriveInvite(env,channel,new URL(data.url).pathname.split('/').pop());
     return result(sent.ok?'Log instructions sent to this thread.':'Could not confirm delivery of the instructions.');
   }

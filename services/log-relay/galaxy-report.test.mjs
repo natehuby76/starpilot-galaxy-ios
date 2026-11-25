@@ -108,7 +108,8 @@ test('Galaxy browser OAuth returns to a private report form and submits only the
     assert.match(launch,/Send to existing Discord thread/);
     assert.ok(launch.includes('Galaxy → Galaxy Access &amp; Connections → Bluetooth</strong>'));
     assert.ok(launch.includes('Capture and send'));
-    assert.ok(launch.includes('Bluetooth Controller Support → Manual ZIP download'));
+    assert.ok(launch.includes('Logs &amp; Diagnostics → Get help → Controller'));
+    assert.ok(launch.includes('Download ZIP instead'));
     assert.ok(launch.includes('Review ZIP for this report'));
     for(const [saved,expected] of [['http://127.0.0.1:8082',undefined],['http://192.168.1.9:8082','http://192.168.1.9:8082']]){
       const controls={'open-galaxy':{hidden:true},'missing-address':{},address:{},launch:{}};

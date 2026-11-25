@@ -1,3 +1,4 @@
+import {galaxyLogSteps} from './galaxy-log-request.mjs';
 import {caseInteraction,reporterButtons} from './case-actions.mjs';
 import {botPost,supportCard,privateCard} from './bot-delivery.mjs';
 import {rememberDriveMessage,webhookMessage} from './codex-review.mjs';
@@ -196,35 +197,26 @@ export async function driveObject(request,storage,env) {
     let result;
     try {
       const capture = ['connection','controller','starport'].includes(record.kind);
-      const page = record.kind === 'controller' ? 'Bluetooth' : 'Networks';
-      const link = record.origin+(capture ? '/report/galaxy/fresh/' : '/drive/')+record.token;
-      const category={starport:'StarPort / Car Screen',controller:'Controller',connection:'Phone App'}[record.kind];
-      const intro = capture ? [
-        record.kind==='starport' ? '**StarPort / Android Auto logs requested**' : record.kind==='controller' ? '**Physical controller logs requested**' : '**Phone app connection logs requested**',
-        'Start here. In Galaxy, open **Logs & Diagnostics → Get help → '+category+'**. Describe the issue and send the logs. Open **Continue on Discord support** if prompted. Sign in, select this thread (**'+String(record.title||'').replace(/[\r\n]/g,' ').slice(0,100)+'**) and press **Post report**.'
-      ].join('\n') : '**Drive logs requested**\nUse the link below to submit the drive logs privately for this report.';
-      const codeSteps = record.kind==='starport' ? '2. Open **Galaxy → Logs & Diagnostics → StarPort Logs**. Choose **Enter a Discord request code**, paste the code, tap **Find report**, check the title, describe what happened and press **Send StarPort logs**. Only staff receive the ZIP.' : capture ? [
-        '2. Open Galaxy → Galaxy Access & Connections → '+page+' → Connection logs. Choose **Send to existing Discord thread**.',
-        '3. Enter the code, tap **Find report**, then **Capture and send**.',
-        '',
-        '**App won’t connect?** Use Galaxy on the comma, or open its Local Galaxy address in your phone’s browser on the same Wi-Fi.',
-        '**Comma offline?** On your phone, open that local address and go to '+(record.kind==='controller'?'Bluetooth → Get help → Bluetooth Controller Support':'Networks → Connection logs')+' → **Manual ZIP download**. Capture and download the ZIP. Once your phone is online, reopen **Get my Galaxy code** and use the offline ZIP option to send it privately.'
-      ].join('\n') : '';
-      const remaining = capture ? '**Older Galaxy with a request-code field?** Use the button to copy your code.\n'+codeSteps : codeSteps;
+      const title={connection:'Phone app connection logs',controller:'Controller logs',starport:'StarPort logs'}[record.kind];
+      const intro=capture?'**'+title+' requested**\n'+galaxyLogSteps(record).map((step,i)=>(i+1)+'. '+step).join('\n\n'):
+        '**Drive logs requested**\nUse the link below to submit the drive logs privately for this report.';
+      const link=record.origin+'/drive/'+record.token;
+      const help=capture?'If the app can’t connect, open Galaxy in your phone’s browser using the Local Galaxy address on the comma while connected to its Wi-Fi or hotspot.':'';
+      const backup=capture && record.kind!=='starport'?'[Offline ZIP help]('+record.origin+'/report/galaxy/fresh/'+record.token+')':'';
       const reporter=/^\d{1,20}$/.test(record.userID) ? record.userID : null;
       const mention=reporter ? '<@'+reporter+'>' : '';
       const mentions={parse:[],users:reporter?[reporter]:[]};
-      const linkRow={type:1,components:[{type:2,style:5,label:capture?'Older Galaxy · Get my code':'Submit drive logs',url:link}]};
+      const linkRow={type:1,components:[{type:2,style:5,label:'Submit drive logs',url:link}]};
       const replies=reporter&&['ios','android'].includes(record.platform)?[reporterButtons(reporter,record.platform,threadID)]:[];
       if(env.DISCORD_BOT_TOKEN){
         result = await fetch('https://discord.com/api/v10/channels/'+threadID+'/messages',{
           method:'POST',redirect:'manual',signal:AbortSignal.timeout(15000),
           headers:{Authorization:'Bot '+env.DISCORD_BOT_TOKEN,'Content-Type':'application/json'},
           body:JSON.stringify({...supportCard(mention,intro,capture?replies:[linkRow,...replies],
-            capture?[linkRow,{type:14},{type:10,content:remaining}]:[]),allowed_mentions:mentions})
+            capture?[{type:14},{type:10,content:[help,backup].filter(Boolean).join('\n')}]:[]),allowed_mentions:mentions})
         });
       } else {
-        result=await postWebhook(env.DISCORD_WEBHOOK_URL,threadID,{content:[mention,intro,'<'+link+'>',remaining].filter(Boolean).join('\n'),allowed_mentions:mentions});
+        result=await postWebhook(env.DISCORD_WEBHOOK_URL,threadID,{content:[mention,intro,capture?help:'<'+link+'>',backup].filter(Boolean).join('\n'),allowed_mentions:mentions});
       }
     } catch {
       return unconfirmed();

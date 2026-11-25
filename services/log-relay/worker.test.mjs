@@ -523,3 +523,11 @@ test('Galaxy lists match the capture type, including identifiable legacy threads
  assert.deepEqual(await list('connection','android'),['5']);
  assert.deepEqual(await list('starport','android'),['6','3']);
 });
+
+test('an active staff log request makes its thread eligible for the requested category',async()=>{
+ const store=storage(),owner=new Reports({storage:store},env);
+ await store.put('thread:1',{id:'1',platform:'ios',reportKind:'connection',requestedLogKinds:{controller:Date.now()+60000,starport:Date.now()-1}});
+ const list=async kind=>(await (await owner.fetch(request('/list',{kind,platform:'ios'}))).json()).reports.map(r=>r.id);
+ assert.deepEqual(await list('controller'),['1']);
+ assert.deepEqual(await list('starport'),[]);
+});
