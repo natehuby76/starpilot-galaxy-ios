@@ -228,6 +228,14 @@ export function reportTags(env, platform, description) {
   return [...new Set(tags)].slice(0, 5);
 }
 
+function storedReportKind(thread) {
+  if(thread.reportKind)return thread.reportKind;
+  // Older threads kept the generated title. "Galaxy" alone could mean phone or controller.
+  if(/^StarPort — /.test(thread.title))return 'starport';
+  if(/^(iOS|Android) — /.test(thread.title))return 'connection';
+  return null;
+}
+
 // Use only the written description. The diagnostics attachment never goes to the model.
 export async function reportTitle(ai, description, platform = 'ios', source) {
   const prefix = (source === 'starport' ? 'StarPort' : source === 'galaxy' ? 'Galaxy' : platformLabel(platform)) + ' — ';
@@ -320,7 +328,7 @@ export class Reports {
       }
       if (new URL(request.url).pathname === '/list') {
         const items = await this.ctx.storage.list({prefix:'thread:'});
-        const rows=[...items.values()].filter(item => platformOf(item.platform) === platform).sort((a,b) => b.created - a.created).slice(0,100);
+        const rows=[...items.values()].filter(item => platformOf(item.platform) === platform && (!body.kind || storedReportKind(item)===body.kind)).sort((a,b) => b.created - a.created).slice(0,100);
         try{return json({reports:await filterReportThreads(this.env,rows)});}catch{return json({error:'Unable to refresh Discord threads. Please try again.'},503);}
       }
       if (path !== '/submit' && !starportForm) return json({error:'Not found'}, 404);
@@ -335,6 +343,9 @@ export class Reports {
         if(live.applied_tags.includes(supportTags.Closed)||live.thread_metadata?.archived||live.thread_metadata?.locked)return json({error:'This report is closed or archived. Refresh the thread list or start a new report.'},409);
       }
       const controllerLog = body.source === 'galaxy' && body.controllerLog === true;
+      const reportKind=body.source==='starport'?'starport':controllerLog?'controller':'connection';
+      if(path==='/submit-stage' && existingThread && storedReportKind(existingThread)!==reportKind)
+        return json({error:'Select a thread for this report type.'},400);
       const fingerprint = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify([body.description, body.logs, body.threadID || null, ...(controllerLog ? ["controller"] : [])]))))].map(b => b.toString(16).padStart(2, '0')).join('');
       const recaptured = Boolean(starportZip) || (body.source === 'galaxy' && body.deviceCapture === true && Boolean(existingThread));
       if (!recaptured && previous?.fingerprint && previous.fingerprint !== fingerprint) return json({error: 'Retry the original report without changing its contents.'}, 409);
@@ -445,7 +456,7 @@ export class Reports {
         if (!/^\d+$/.test(message.id || '') || !/^\d+$/.test(message.channel_id || '') || (existingThread && message.channel_id !== body.threadID)) return json(uncertain.result, 409);
         const response = {sent: true, reference: body.reference, threadURL: `https://discord.com/channels/${hook.guild_id}/${message.channel_id}/${message.id}`};
         await this.ctx.storage.transaction(async storage => {
-          if (!existingThread) await storage.put('thread:' + message.channel_id, {id:message.channel_id, title, platform, created:now,reporter:name});
+          if (!existingThread) await storage.put('thread:' + message.channel_id, {id:message.channel_id, title, platform, reportKind, created:now,reporter:name});
           await storage.put('latest-diagnostics:'+message.channel_id,uncertain.privateURL);
           await storage.put(key, {status: 200, result: response, at: now});
           await storage.put(referenceKey(platform, body.reference), {threadURL:response.threadURL, ...(this.env.DISCORD_BOT_TOKEN && {botPublic:true}), ...(uncertain.botPrivate && {botPrivateURL:uncertain.privateURL})});

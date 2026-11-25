@@ -508,3 +508,18 @@ test('recaptured Galaxy logs resume after private rejection and use the verified
   assert.equal((await send('capture 3')).status,200);
   assert.deepEqual(sends,['private bot','private bot','private webhook','public receipt']);
 });
+
+test('Galaxy lists match the capture type, including identifiable legacy threads',async()=>{
+ const store=storage(), owner=new Reports({storage:store},env);
+ const records=[
+   ['1','iOS — Lost nav','ios'],['2','Galaxy — Pairing','ios'],
+   ['3','StarPort — Black screen','android'],['4','Renamed','ios','controller'],
+   ['5','Renamed','android','connection'],['6','Renamed','android','starport']
+ ];
+ for(const [id,title,platform,reportKind] of records)await store.put('thread:'+id,{id,title,platform,reportKind,created:Number(id)});
+ const list=async(kind,platform)=>(await (await owner.fetch(request('/list',{kind,platform}))).json()).reports.map(r=>r.id);
+ assert.deepEqual(await list('connection','ios'),['1']);
+ assert.deepEqual(await list('controller','ios'),['4']);
+ assert.deepEqual(await list('connection','android'),['5']);
+ assert.deepEqual(await list('starport','android'),['6','3']);
+});

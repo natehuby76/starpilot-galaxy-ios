@@ -75,10 +75,11 @@ export async function stageStorage(request,storage,env){
   if(path!=='/stage/post')return json({},404);
   const owner=env.REPORTS.get(env.REPORTS.idFromName(user.id));
   const target=threadID||'';
+  if(state.kind==='connection' && state.phone && state.phone!==platform)return json({error:'Select the same phone platform.'},400);
   if(target){
-    const threads=await owner.fetch('https://reports/list',{method:'POST',body:JSON.stringify({platform})});
+    const threads=await owner.fetch('https://reports/list',{method:'POST',body:JSON.stringify({platform,kind:state.kind})});
     if(!threads.ok)return json({error:'Could not verify your threads. Try again.'},503);
-    if(!(await threads.json()).reports.some(t=>t.id===target))return json({error:'Choose one of your open threads.'},409);
+    if(!(await threads.json()).reports.some(t=>t.id===target))return json({error:'Choose one of your matching open threads.'},400);
   }
   const reserved=await storage.transaction(async tx=>{
     const current=await tx.get('stage');
@@ -152,8 +153,9 @@ export async function claimPage(request,env,{base,user,token,escape}){
   }
   if(request.method!=='GET')return page('Open the confirmation page.',405);
   const owner=env.REPORTS.get(env.REPORTS.idFromName(user.id));
-  const lists=await Promise.all(['ios','android'].map(async platform=>{
-    const result=await owner.fetch('https://reports/list',{method:'POST',body:JSON.stringify({platform})});
+  const platforms=data.kind==='connection' && data.phone?[data.phone]:['ios','android'];
+  const lists=await Promise.all(platforms.map(async platform=>{
+    const result=await owner.fetch('https://reports/list',{method:'POST',body:JSON.stringify({platform,kind:data.kind})});
     if(!result.ok)return null;
     return (await result.json()).reports.map(t=>'<option value="'+platform+':'+escape(t.id)+'">'+escape(t.title)+'</option>').join('');
   }));

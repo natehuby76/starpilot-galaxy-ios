@@ -12,7 +12,7 @@ function setup(){
     idFromName:name=>name,
     get(name){
       if(name==='42')return {async fetch(path,opts){
-        if(path.endsWith('/list'))return Response.json({reports:JSON.parse(opts.body).platform==='ios'?[{id:'123',title:'Lost nav'}]:[]});
+        if(path.endsWith('/list'))return Response.json({reports:JSON.parse(opts.body).kind==='connection' && JSON.parse(opts.body).platform==='ios'?[{id:'123',title:'Lost nav'}]:[]});
         assert.ok(path.endsWith('/submit-stage'));
         uploads.push({meta:JSON.parse(opts.body.get('metadata')),zip:Buffer.from(await opts.body.get('archive').arrayBuffer())});
         return Response.json({sent:true,threadURL:'https://discord.com/channels/1/123/246'});
@@ -47,9 +47,10 @@ for(const [kind,file,target] of [['starport','session.txt','new'],['connection',
     const open=(who,method='GET',destination=target,origin=base)=>claimPage(new Request(claimUrl,{method,...(method==='POST'?{
       headers:{Origin:origin},body:new URLSearchParams({destination})}:{})}),env,{base,token,user:who,escape:s=>String(s)});
     assert.equal((await open(null)).status,303);
-    assert.match(await (await open(user)).text(),/Lost nav/);
+    const confirmationPage=await (await open(user)).text();
+    assert.equal(confirmationPage.includes('Lost nav'),kind==='connection');
     assert.equal((await open(user,'POST',target,'https://other.example')).headers.get('Location'), new URL(claimUrl).pathname+'?notice=review');
-    assert.equal((await open(user,'POST','ios:999')).headers.get('Location'),new URL(claimUrl).pathname+'?notice=delivery');
+    assert.equal((await open(user,'POST','ios:999')).headers.get('Location'),new URL(claimUrl).pathname+'?notice=destination');
     assert.equal(uploads.length,0);
     assert.equal((await open(user,'POST')).status,303);
     assert.match(await (await open(user)).text(),/Open your Discord thread/);
