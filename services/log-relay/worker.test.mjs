@@ -531,3 +531,11 @@ test('an active staff log request makes its thread eligible for the requested ca
  assert.deepEqual(await list('controller'),['1']);
  assert.deepEqual(await list('starport'),[]);
 });
+
+test('controller titles and automatic tags are independent of phone platform',async()=>{
+ const tags={IOS_FORUM_TAG_IDS:'1,2',ANDROID_FORUM_TAG_IDS:'3,4',CONTROLLER_FORUM_TAG_ID:'888'};
+ for(const platform of ['ios','android']){
+   assert.match(await reportTitle(null,'test',platform,'controller'),/^Bluetooth controller — /);
+   assert.deepEqual(reportTags(tags,platform,'test','controller'),['1565236988913913887','888']);
+ }
+});

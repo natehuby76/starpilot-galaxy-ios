@@ -49,6 +49,8 @@ for(const [kind,file,target] of [['starport','session.txt','new'],['connection',
     assert.equal((await open(null)).status,303);
     const confirmationPage=await (await open(user)).text();
     assert.equal(confirmationPage.includes('Lost nav'),kind==='connection');
+    if(kind!=='connection')assert.doesNotMatch(confirmationPage,/new (iOS|Android) support thread/);
+    else assert.match(confirmationPage,/selected disabled>Choose a phone platform/);
     assert.equal((await open(user,'POST',target,'https://other.example')).headers.get('Location'), new URL(claimUrl).pathname+'?notice=review');
     assert.equal((await open(user,'POST','ios:999')).headers.get('Location'),new URL(claimUrl).pathname+'?notice=destination');
     assert.equal(uploads.length,0);
@@ -110,4 +112,17 @@ test('Safari confirmation remains tied to the signed-in user and staged report',
     for(let i=0;i<2;i++)assert.match(await (await claimPage(new Request(claimUrl),env,options)).text(),/Your report was posted/);
   }
   assert.equal(uploads.length,2);
+});
+
+test('hardware reports ignore the comma phone label, including existing staged captures',async()=>{
+ for(const [kind,phone,file,category] of [['starport','android','session.txt','StarPort'],['controller','ios','bluetooth-log.json','Bluetooth controller'],['connection','android','connection-logs.txt','Android'],['connection','ios','connection-logs.txt','iOS']]){
+   const {env}=setup();
+   const response=await worker.fetch(new Request(base+'/report/galaxy/stage',{method:'POST',headers:{
+     'Content-Type':'application/zip','X-Galaxy-Kind':kind,'X-Galaxy-Platform':phone,'X-Galaxy-Note':'test'
+   },body:await diagnosticZip('test',file)}),env);
+   const {claimUrl}=await response.json();
+   const html=await (await claimPage(new Request(claimUrl),env,{base,user,token:claimUrl.split('/').pop(),escape:String})).text();
+   assert.ok(html.includes('Create a new '+category+' support thread'));
+   assert.equal(html.includes('Create a new iOS support thread'),category==='iOS');
+ }
 });

@@ -147,6 +147,7 @@ export async function claimPage(request,env,{base,user,token,escape}){
     const target=form.get('destination');
     const match=/^(ios|android):(\d{1,20})$/.exec(target);
     if(!['new','new-android'].includes(target)&&!match)return back('destination');
+    if(target==='new-android' && (data.kind!=='connection'||data.phone==='ios'))return back('destination');
     const result=await call('post',{threadID:match?.[2],platform:match?.[1]||(target==='new-android'?'android':data.phone || (data.kind==='connection'?'ios':'android'))});
     if(result.ok)return back();
     return back(result.status===429?'limited':result.status===400?'destination':'delivery');
@@ -157,10 +158,12 @@ export async function claimPage(request,env,{base,user,token,escape}){
   const lists=await Promise.all(platforms.map(async platform=>{
     const result=await owner.fetch('https://reports/list',{method:'POST',body:JSON.stringify({platform,kind:data.kind})});
     if(!result.ok)return null;
-    return (await result.json()).reports.map(t=>'<option value="'+platform+':'+escape(t.id)+'">'+escape(t.title)+'</option>').join('');
+    return (await result.json()).reports.map(t=>'<option value="'+platform+':'+escape(t.id)+'">'+escape(t.title)+(t.requestedForKind?' (staff requested these logs)':'')+'</option>').join('');
   }));
   const confirmation=hex(new Uint8Array(await crypto.subtle.sign('HMAC',formKey,formData)));
   const notice=new URL(request.url).searchParams.get('notice');
   const banner=Object.hasOwn(notices,notice)?'<p role="status">'+notices[notice]+'</p>':'';
-  return page(banner+'<p>Signed in as <strong>'+escape(user.global_name||user.username)+'</strong></p><h2>'+labels[data.kind]+' report</h2><blockquote>'+escape(data.note)+'</blockquote><p>Your note appears in the thread. Only staff receive the ZIP and device details.</p><form method="post"><input type="hidden" name="confirmation" value="'+confirmation+'"><label>Post to<select name="destination"><option value="new">'+(data.phone?'Create a new '+(data.phone==='ios'?'iOS':'Android')+' support thread':data.kind==='connection'?'Create a new iOS support thread':'Create a new support thread')+'</option>'+(data.kind==='connection' && !data.phone?'<option value="new-android">Create a new Android support thread</option>':'')+lists.join('')+'</select></label>'+(lists.includes(null)?'<p>Some threads could not be loaded. Refresh to try again.</p>':'')+'<button>Post report</button></form>');
+  const newCategory=data.kind==='connection'?(data.phone==='android'?'Android':'iOS'):labels[data.kind];
+  const choosePhone=data.kind==='connection' && !data.phone;
+  return page(banner+'<p>Signed in as <strong>'+escape(user.global_name||user.username)+'</strong></p><h2>'+labels[data.kind]+' report</h2><blockquote>'+escape(data.note)+'</blockquote><p>Your note appears in the thread. Only staff receive the ZIP and device details.</p><form method="post"><input type="hidden" name="confirmation" value="'+confirmation+'"><label>Post to<select name="destination" required>'+(choosePhone?'<option value="" selected disabled>Choose a phone platform or existing thread</option>':'')+'<option value="new">Create a new '+newCategory+' support thread</option>'+(choosePhone?'<option value="new-android">Create a new Android support thread</option>':'')+lists.join('')+'</select></label>'+(lists.includes(null)?'<p>Some threads could not be loaded. Refresh to try again.</p>':'')+'<button>Post report</button></form>');
 }

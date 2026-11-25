@@ -215,7 +215,8 @@ export function buildNotifications(env) {
 
 // Classify only the reporter's description, never private diagnostic contents.
 // Status transitions remain manual; follow-ups preserve the thread's existing tags.
-export function reportTags(env, platform, description) {
+export function reportTags(env, platform, description, kind) {
+  if(kind==='controller')return [supportTags.Open,...(/^\d+$/.test(env.CONTROLLER_FORUM_TAG_ID||'')?[env.CONTROLLER_FORUM_TAG_ID]:[])];
   const configured = platform === 'android' ? env.ANDROID_FORUM_TAG_IDS : env.IOS_FORUM_TAG_IDS ?? env.FORUM_TAG_IDS;
   const tags = (configured || '').split(',').map(s => s.trim()).filter(s => /^\d+$/.test(s));
   const text = description.normalize('NFKC').toLowerCase();
@@ -242,7 +243,7 @@ function acceptsLogKind(thread,kind){
 
 // Use only the written description. The diagnostics attachment never goes to the model.
 export async function reportTitle(ai, description, platform = 'ios', source) {
-  const prefix = (source === 'starport' ? 'StarPort' : source === 'galaxy' ? 'Galaxy' : platformLabel(platform)) + ' — ';
+  const prefix = (source === 'controller' ? 'Bluetooth controller' : source === 'starport' ? 'StarPort' : source === 'galaxy' ? 'Galaxy' : platformLabel(platform)) + ' — ';
   const fallback = description.trim().split('\n')[0].replace(/[\r\n\x00-\x1f]/g, ' ').trim();
   if (!ai) return (prefix + fallback).slice(0, 100);
   try {
@@ -333,7 +334,10 @@ export class Reports {
       if (new URL(request.url).pathname === '/list') {
         const items = await this.ctx.storage.list({prefix:'thread:'});
         const rows=[...items.values()].filter(item => platformOf(item.platform) === platform && (!body.kind || acceptsLogKind(item,body.kind))).sort((a,b) => b.created - a.created).slice(0,100);
-        try{return json({reports:await filterReportThreads(this.env,rows)});}catch{return json({error:'Unable to refresh Discord threads. Please try again.'},503);}
+        try{
+          const reports=await filterReportThreads(this.env,rows);
+          return json({reports:body.kind?reports.map(t=>({...t,requestedForKind:storedReportKind(t)!==body.kind})):reports});
+        }catch{return json({error:'Unable to refresh Discord threads. Please try again.'},503);}
       }
       if (path !== '/submit' && !starportForm) return json({error:'Not found'}, 404);
       const existingThread = body.threadID ? await this.ctx.storage.get('thread:' + body.threadID) : null;
@@ -398,14 +402,14 @@ export class Reports {
       if (reservation) return json(reservation.result, reservation.status);
       await this.ctx.storage.setAlarm(now + 86400000);
       const name = (body.user.global_name || body.user.username).replace(/[\r\n]/g, ' ').slice(0, 80);
-      const title = existingThread?.title || previous?.title || await reportTitle(this.env.AI, body.description, platform, body.source);
+      const title = existingThread?.title || previous?.title || await reportTitle(this.env.AI, body.description, platform, controllerLog?'controller':body.source);
       const maintainer = reportMaintainer(this.env, body.source==='starport'?'android':platform) || '';
       const recipients = [...new Set([body.user.id, ...(/^\d+$/.test(maintainer) ? [maintainer] : [])])];
       const notify = maintainer && maintainer !== body.user.id && /^\d+$/.test(maintainer) ? `\nFor <@${maintainer}>` : '';
       const payload = {thread_name: title,
         content: `Report from <@${body.user.id}> (${name})${notify}\nReference: ${body.reference}\n\n${body.description}`,
         allowed_mentions: {parse: [], users: recipients},
-        applied_tags: reportTags(this.env, platform, body.source === "galaxy" ? "Galaxy " + body.description : body.description)};
+        applied_tags: reportTags(this.env, platform, body.source === "galaxy" ? "Galaxy " + body.description : body.description,reportKind)};
       if(this.env.DISCORD_BOT_TOKEN && this.env.DISCORD_PUBLIC_KEY){
         payload.components=caseButtons(body.user.id,platform);
         if(!existingThread)payload.content+='\n\nOpen Staff Actions to apply tags, mark this report in progress, or assign someone.';
