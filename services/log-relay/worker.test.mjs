@@ -150,14 +150,14 @@ test('uncertain delivery is not automatically sent twice',async()=>{
 
 test('AI titles use only descriptions and fall back safely', async () => {
  let received;
- const ai = {run: async (model, input) => { received = {model, input}; return {response: 'Wi-Fi and tunnel failed; Bluetooth worked'}; }};
+ const ai = {run: async (model, input) => { received = {model, input}; return {choices: [{message: {content: 'Wi-Fi and tunnel failed; Bluetooth worked'}}]}; }};
  const example = 'Didn’t connect on wifi or tunnel but did over Bluetooth';
  assert.equal(await reportTitle(ai, example), 'iOS — Wi-Fi and tunnel failed; Bluetooth worked');
  const greeting = 'Hi, my car ping pongs';
- for (const model of [null, {run: async () => ({response: greeting})}]) {
+ for (const model of [null, {run: async () => ({choices: [{message: {content: greeting}}]})}]) {
    assert.equal(await reportTitle(model, greeting), 'iOS — Car ping-pongs');
  }
- assert.equal(received.model, '@cf/meta/llama-3.1-8b-instruct-fp8');
+ assert.equal(received.model, '@cf/google/gemma-4-26b-a4b-it');
  assert.equal(received.input.messages[1].content, example);
  assert.equal(await reportTitle({run: async () => {throw Error('unavailable')}}, example), 'iOS — ' + example);
 });
