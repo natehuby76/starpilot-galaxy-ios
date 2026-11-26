@@ -153,6 +153,10 @@ test('AI titles use only descriptions and fall back safely', async () => {
  const ai = {run: async (model, input) => { received = {model, input}; return {response: 'Wi-Fi and tunnel failed; Bluetooth worked'}; }};
  const example = 'Didn’t connect on wifi or tunnel but did over Bluetooth';
  assert.equal(await reportTitle(ai, example), 'iOS — Wi-Fi and tunnel failed; Bluetooth worked');
+ const greeting = 'Hi, my car ping pongs';
+ for (const model of [null, {run: async () => ({response: greeting})}]) {
+   assert.equal(await reportTitle(model, greeting), 'iOS — Car ping-pongs');
+ }
  assert.equal(received.model, '@cf/meta/llama-3.1-8b-instruct-fp8');
  assert.equal(received.input.messages[1].content, example);
  assert.equal(await reportTitle({run: async () => {throw Error('unavailable')}}, example), 'iOS — ' + example);
