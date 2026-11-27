@@ -18,6 +18,18 @@ CAFE00000000000000000048 = {isa = XCBuildConfiguration; buildSettings = {CODE_SI
 CAFE00000000000000000049 = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = "5P9DLC338G"; GENERATE_INFOPLIST_FILE = YES; PRODUCT_BUNDLE_IDENTIFIER = link.galaxy.bluetooth.natehuby76.uitests; PRODUCT_NAME = "$(TARGET_NAME)"; TARGETED_DEVICE_FAMILY = "1,2"; SWIFT_VERSION = 5.0; IPHONEOS_DEPLOYMENT_TARGET = 17.0; TEST_TARGET_NAME = GalaxyBluetooth; }; name = Release; };
 CAFE0000000000000000004A = {isa = PBXContainerItemProxy; containerPortal = 244210E48437B6556980A702; proxyType = 1; remoteGlobalIDString = 34A04005BCAF206EEC990BD9; remoteInfo = GalaxyBluetooth; };
 CAFE0000000000000000004B = {isa = PBXTargetDependency; target = 34A04005BCAF206EEC990BD9; targetProxy = CAFE0000000000000000004A; };
+CAFE00000000000000000050 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "tests/unit/GalaxyCoreTests.swift"; sourceTree = "<group>"; };
+CAFE00000000000000000051 = {isa = PBXBuildFile; fileRef = CAFE00000000000000000050; };
+CAFE00000000000000000052 = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = GalaxyBluetoothTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+CAFE00000000000000000053 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (CAFE00000000000000000051); runOnlyForDeploymentPostprocessing = 0; };
+CAFE00000000000000000054 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+CAFE00000000000000000055 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+CAFE00000000000000000056 = {isa = PBXNativeTarget; buildConfigurationList = CAFE00000000000000000057; buildPhases = (CAFE00000000000000000053,CAFE00000000000000000054,CAFE00000000000000000055); buildRules = (); dependencies = (CAFE0000000000000000005B); name = GalaxyBluetoothTests; productName = GalaxyBluetoothTests; productReference = CAFE00000000000000000052; productType = "com.apple.product-type.bundle.unit-test"; };
+CAFE00000000000000000057 = {isa = XCConfigurationList; buildConfigurations = (CAFE00000000000000000058,CAFE00000000000000000059); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+CAFE00000000000000000058 = {isa = XCBuildConfiguration; buildSettings = {BUNDLE_LOADER = "$(TEST_HOST)"; CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = "5P9DLC338G"; GENERATE_INFOPLIST_FILE = YES; PRODUCT_BUNDLE_IDENTIFIER = link.galaxy.bluetooth.natehuby76.tests; PRODUCT_NAME = "$(TARGET_NAME)"; TARGETED_DEVICE_FAMILY = 1; SWIFT_VERSION = 5.0; IPHONEOS_DEPLOYMENT_TARGET = 17.0; TEST_HOST = "$(BUILT_PRODUCTS_DIR)/GalaxyBluetooth.app/GalaxyBluetooth"; }; name = Debug; };
+CAFE00000000000000000059 = {isa = XCBuildConfiguration; buildSettings = {BUNDLE_LOADER = "$(TEST_HOST)"; CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = "5P9DLC338G"; GENERATE_INFOPLIST_FILE = YES; PRODUCT_BUNDLE_IDENTIFIER = link.galaxy.bluetooth.natehuby76.tests; PRODUCT_NAME = "$(TARGET_NAME)"; TARGETED_DEVICE_FAMILY = 1; SWIFT_VERSION = 5.0; IPHONEOS_DEPLOYMENT_TARGET = 17.0; TEST_HOST = "$(BUILT_PRODUCTS_DIR)/GalaxyBluetooth.app/GalaxyBluetooth"; }; name = Release; };
+CAFE0000000000000000005A = {isa = PBXContainerItemProxy; containerPortal = 244210E48437B6556980A702; proxyType = 1; remoteGlobalIDString = 34A04005BCAF206EEC990BD9; remoteInfo = GalaxyBluetooth; };
+CAFE0000000000000000005B = {isa = PBXTargetDependency; target = 34A04005BCAF206EEC990BD9; targetProxy = CAFE0000000000000000005A; };
 
 5A4E00000000000000000005 /* ShareRelay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareRelay.swift; sourceTree = "<group>"; };
 5A4E00000000000000000006 /* ShareRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A4E00000000000000000005; };
@@ -67,6 +79,10 @@ D15C00000000000000000901 = {isa = PBXBuildFile; fileRef = D15C000000000000000009
 		D92135C445C249E6A5DC0011 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = D92135C445C249E6A5DC0012 /* PrivacyInfo.xcprivacy */; };
 		140107256F4F4DF2910BED61 /* BluetoothTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D47658A09FCC6A6C73D1A1A3 /* BluetoothTransport.swift */; };
 		1698566BBEF2185D9C80B6BB /* HTTP.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34DE7063A67F0755E6E69BF7 /* HTTP.swift */; };
+		315EB57C35FC47F82987AA49 /* GalaxyRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40B7A4985462994C14EA006 /* GalaxyRootView.swift */; };
+		51F5D048D6E142EF9D41B0FE /* CompanionChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A9C4A73E714DFE22BEA06DB /* CompanionChrome.swift */; };
+		BC2912077A73095B75579779 /* ConnectionEventLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9FD525366E5943C30A6047B /* ConnectionEventLog.swift */; };
+		85669798E34C11F110C374F6 /* CarPlayDashboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31C1668461F20C4BF0E0F8FE /* CarPlayDashboard.swift */; };
 		28D504D2BD92FF8A8AEB68A7 /* CompanionDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AD85D1A585138AF80FEADB9 /* CompanionDiagnostics.swift */; };
 		36EBF9BB2BE027F139572ADA /* GalaxyBluetoothApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3356A9DC86451A9D92F074F8 /* GalaxyBluetoothApp.swift */; };
 		5992DC6B04748581DE47AA02 /* LoopbackServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B07071562661895558F74EE6 /* LoopbackServer.swift */; };
@@ -123,6 +139,10 @@ D15C00000000000000000902 = {isa = PBXFileReference; lastKnownFileType = sourceco
 		43A1199899003FF3F5F30831 /* PairingKeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingKeyStore.swift; sourceTree = "<group>"; };
 		5492C1BC71EB8D0DBF12896E /* PrivateLANHTTP.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivateLANHTTP.swift; sourceTree = "<group>"; };
 		80D0F5CDB02B33E408C75D8C /* GalaxyRequestTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalaxyRequestTransport.swift; sourceTree = "<group>"; };
+		B40B7A4985462994C14EA006 /* GalaxyRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalaxyRootView.swift; sourceTree = "<group>"; };
+		4A9C4A73E714DFE22BEA06DB /* CompanionChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompanionChrome.swift; sourceTree = "<group>"; };
+		B9FD525366E5943C30A6047B /* ConnectionEventLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionEventLog.swift; sourceTree = "<group>"; };
+		31C1668461F20C4BF0E0F8FE /* CarPlayDashboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlayDashboard.swift; sourceTree = "<group>"; };
 		8AD85D1A585138AF80FEADB9 /* CompanionDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompanionDiagnostics.swift; sourceTree = "<group>"; };
 		8F213860FC7A532DBD355109 /* CarPlaySceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlaySceneDelegate.swift; sourceTree = "<group>"; };
 		9CEEC13202AFBF12EE3ABB99 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -236,6 +256,10 @@ D15C00000000000000000902 /* DiscordReports.swift */,
 				43A1199899003FF3F5F30831 /* PairingKeyStore.swift */,
 				F48B8D06AA8D8C4AC21E5982 /* Wire.swift */,
 				9CEEC13202AFBF12EE3ABB99 /* Info.plist */,
+				B40B7A4985462994C14EA006 /* GalaxyRootView.swift */,
+				4A9C4A73E714DFE22BEA06DB /* CompanionChrome.swift */,
+				B9FD525366E5943C30A6047B /* ConnectionEventLog.swift */,
+				31C1668461F20C4BF0E0F8FE /* CarPlayDashboard.swift */,
 				8AD85D1A585138AF80FEADB9 /* CompanionDiagnostics.swift */,
 				8F213860FC7A532DBD355109 /* CarPlaySceneDelegate.swift */,
 				9F0B8B04FE0E80BA046C0042 /* Resources/Branding.xcassets */,
@@ -247,6 +271,7 @@ D15C00000000000000000902 /* DiscordReports.swift */,
 			isa = PBXGroup;
 			children = (
 				CAFE00000000000000000040,
+				CAFE00000000000000000050,
                 9E61AFF607A3704A97803240 /* GalaxyBluetooth */,
 				5A4E00000000000000000017 /* StarPilotShare */,
 				5E1700000000000000000005 /* SentryNotification */,
@@ -305,6 +330,7 @@ D15C00000000000000000902 /* DiscordReports.swift */,
 			projectRoot = "";
 			targets = (
                 CAFE00000000000000000046,
+                CAFE00000000000000000056,
 				34A04005BCAF206EEC990BD9 /* GalaxyBluetooth */,
 				5A4E0000000000000000001B /* StarPilotShare */,
 				5E1700000000000000000009 /* SentryNotification */,
@@ -361,6 +387,10 @@ D15C00000000000000000902 /* DiscordReports.swift */,
 				140107256F4F4DF2910BED61 /* BluetoothTransport.swift in Sources */,
 				FACE00000000000000000001 /* PairingCode.swift in Sources */,
 				C1A100000000000000000001 /* ClaimPairing.swift in Sources */,
+				315EB57C35FC47F82987AA49 /* GalaxyRootView.swift in Sources */,
+				51F5D048D6E142EF9D41B0FE /* CompanionChrome.swift in Sources */,
+				BC2912077A73095B75579779 /* ConnectionEventLog.swift in Sources */,
+				85669798E34C11F110C374F6 /* CarPlayDashboard.swift in Sources */,
 				28D504D2BD92FF8A8AEB68A7 /* CompanionDiagnostics.swift in Sources */,
 				A6D597850E6DD0CDFB754EF8 /* CarPlaySceneDelegate.swift in Sources */,
 				36EBF9BB2BE027F139572ADA /* GalaxyBluetoothApp.swift in Sources */,
@@ -387,6 +417,8 @@ D15C00000000000000000901 /* DiscordReports.swift in Sources */,
 				CLANG_ENABLE_MODULES = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = targeted;
 			};
 			name = Release;
 		};
@@ -398,6 +430,8 @@ D15C00000000000000000901 /* DiscordReports.swift in Sources */,
 				CLANG_ENABLE_MODULES = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = targeted;
 			};
 			name = Debug;
 		};
@@ -417,6 +451,7 @@ D15C00000000000000000901 /* DiscordReports.swift in Sources */,
 				PRODUCT_BUNDLE_IDENTIFIER = link.galaxy.bluetooth.natehuby76;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				ENABLE_TESTABILITY = YES;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
