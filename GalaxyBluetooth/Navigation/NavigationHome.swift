@@ -17,6 +17,9 @@ struct NavigationHome: View {
     @AppStorage(NavigationMapPreference.tokenKey) private var publicToken = ""
     @AppStorage(NavigationMapPreference.promptedKey) private var mapSetupSeen = false
     @State private var showMapSetup = false
+    @AppStorage(NavigationModel.phoneOnlyKey) private var phoneOnly = false
+    @AppStorage(CommaSetupState.key) private var commaSetup = CommaSetupState.unknown.rawValue
+    @State private var showCommaSetup = false
     @State private var tokenEntry = ""
     @FocusState private var searchFocused: Bool
     @State private var query = ""
@@ -111,6 +114,88 @@ struct NavigationHome: View {
             }
         }
         .sheet(isPresented: $showNavigationSettings) { NavigationMapSettings(model: connection.app) }
+        .sheet(isPresented: $showCommaSetup) { commaSetupSteps }
+        .task(id: "\(phoneOnly)|\(connection.connected)|\(connection.session)") { await checkCommaSetup() }
+    }
+
+    private var setupState: CommaSetupState { CommaSetupState(rawValue: commaSetup) ?? .unknown }
+
+    @MainActor private func checkCommaSetup() async {
+        guard !phoneOnly, connection.connected else { return }
+        let session = connection.session
+        guard (try? await connection.ensureDeviceIdentity()) != nil, connection.session == session,
+              let reply = try? await connection.transport.request(path: "/api/navigation/status", method: "GET", headers: [:], body: Data()),
+              !Task.isCancelled, connection.session == session, reply.status == 200,
+              let status = try? JSONDecoder().decode(CommaSetupState.Status.self, from: reply.bodyData) else { return }
+        commaSetup = CommaSetupState(status).rawValue
+    }
+
+    @ViewBuilder private var commaSetupCard: some View {
+        if !phoneOnly, setupState.needsSetup {
+            VStack(alignment: .leading, spacing: 10) {
+                Label("Finish navigation setup on your comma", systemImage: "exclamationmark.triangle.fill")
+                    .font(.subheadline.weight(.semibold)).foregroundStyle(.orange)
+                Text(setupState == .needsKey ? "Your comma needs a Mapbox key before it can search places or plan routes."
+                                             : "Navigation is turned off on your comma.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                HStack(spacing: 10) {
+                    Button("Show me how") { showCommaSetup = true }.buttonStyle(.borderedProminent)
+                    Button("Use iPhone only") { phoneOnly = true }.buttonStyle(.bordered)
+                }.font(.subheadline.weight(.semibold))
+            }
+            .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+            .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("comma-setup-card")
+        }
+    }
+
+    private var commaSetupSteps: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text("Park, then open Galaxy on your comma and go to **Navigation & Maps › Setup**.")
+                } header: { Text("On your comma") }
+                Section {
+                    Label {
+                        VStack(alignment: .leading, spacing: 4) {
+                            if setupState == .off {
+                                Text("Turn navigation on").font(.headline)
+                                Text("Your Mapbox key is saved. Turn on the **Navigation** switch at the top of the page.")
+                                    .font(.footnote).foregroundStyle(.secondary)
+                            } else {
+                                Text("Add your Mapbox key").font(.headline)
+                                Text("Paste your public token (it starts with pk.) and tap **Save and enable**. This also turns navigation on. Get a free token at console.mapbox.com.")
+                                    .font(.footnote).foregroundStyle(.secondary)
+                            }
+                        }
+                    } icon: { Image(systemName: "1.circle.fill") }
+                    Label {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Recommended: use Google for directions").font(.headline)
+                            Text("Add a Google key, tap **Test key**, then set **Directions** to Google. You get live-traffic routes and better place search. Your comma falls back to Mapbox on its own if Google can’t answer.")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
+                    } icon: { Image(systemName: "2.circle.fill") }
+                    Label {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Optional: download offline maps").font(.headline)
+                            Text("Under **Navigation & Maps › Offline Maps**, choose your region while parked.")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
+                    } icon: { Image(systemName: "3.circle.fill") }
+                } header: { Text("Steps") }
+                Section {
+                    Button("Check again") { Task { await checkCommaSetup(); if !setupState.needsSetup { showCommaSetup = false } } }
+                        .disabled(!connection.connected)
+                    Button("Use iPhone-only directions instead") { phoneOnly = true; showCommaSetup = false }
+                } footer: {
+                    Text(connection.connected ? "When you’re done, tap Check again." : "Connect to your comma to check again.")
+                }
+            }
+            .navigationTitle("Set up comma navigation").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showCommaSetup = false } } }
+        }
     }
 
     private var mapSetup: some View {
@@ -238,6 +323,7 @@ struct NavigationHome: View {
                 } else {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 12) {
+                            if !searchingPlaces { commaSetupCard }
                             alerts
                             if searchingPlaces && !query.isEmpty { searchResults }
                             else { savedPlaces }
@@ -636,4 +722,17 @@ private struct NavigationRouteButtonStyle: ButtonStyle {
         .background(StarPilotTheme.guidance.gradient, in: RoundedRectangle(cornerRadius: 15))
         .opacity(enabled ? (configuration.isPressed ? 0.78 : 1) : 0.55)
     }
+}
+
+enum CommaSetupState: String {
+    case unknown, ready, off, needsKey
+    static let key = "navigation.commaSetupState"
+
+    struct Status: Decodable { let enabled: Bool; let hasKey: Bool }
+
+    init(_ status: Status) {
+        self = !status.hasKey ? .needsKey : status.enabled ? .ready : .off
+    }
+
+    var needsSetup: Bool { self == .off || self == .needsKey }
 }
