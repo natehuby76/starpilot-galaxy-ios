@@ -232,8 +232,8 @@ struct NavigationMapSettings: View {
             Form {
                 trips.listRowBackground(menuPanel)
                 Section {
-                    settingLink("Comma settings", icon: "car.fill", detail: "Google Routes, Mapbox and GPS") {
-                        CommaNavigationPreferences(connection: model.navigationServices.connection)
+                    pageLink("Comma settings", icon: "car.fill", detail: "Google Routes, Mapbox and GPS") {
+                        CommaNavigationPreferences(connection: model.navigationServices.connection, rowBackground: menuPanel)
                     }
                     if phoneOnly {
                         settingLink("iPhone directions", icon: "iphone", detail: effectiveProvider) {
@@ -280,8 +280,13 @@ struct NavigationMapSettings: View {
 
     private func settingLink<Content: View>(_ title: LocalizedStringKey, icon: String, detail: String,
                                              @ViewBuilder content: @escaping () -> Content) -> some View {
+        pageLink(title, icon: icon, detail: detail) { Form { content().listRowBackground(menuPanel) } }
+    }
+
+    private func pageLink<Page: View>(_ title: LocalizedStringKey, icon: String, detail: String,
+                                      @ViewBuilder page: @escaping () -> Page) -> some View {
         NavigationLink {
-            Form { content().listRowBackground(menuPanel) }
+            page()
                 .scrollContentBackground(.hidden)
                 .background(menuBackground)
                 .navigationTitle(title)
@@ -1005,6 +1010,7 @@ private struct StandardMapSettings: View {
 
 private struct CommaNavigationPreferences: View {
     let connection: CommaConnection
+    let rowBackground: Color
     @AppStorage(NavigationModel.phoneOnlyKey) private var phoneOnly = false
 
     private struct Snapshot: Decodable {
@@ -1017,6 +1023,8 @@ private struct CommaNavigationPreferences: View {
         let googleRoutes: GoogleRoutesStatus?
     }
 
+    private static let offlineMapsHint = "Download offline maps in Galaxy on your comma under Navigation & Maps › Offline Maps."
+
     @State private var original: Snapshot?
     @State private var loadedSession = ""
     @State private var map = ""
@@ -1026,6 +1034,7 @@ private struct CommaNavigationPreferences: View {
     @State private var tolls = false
     @State private var ferries = false
     @State private var busy = false
+    @State private var attempted = false
     @State private var message = ""
 
     private var changes: [String: Any] {
@@ -1042,54 +1051,67 @@ private struct CommaNavigationPreferences: View {
 
     var body: some View {
         Form {
-            if let original {
-                Section("On your comma") {
-                    LabeledContent("Navigation", value: original.enabled ? "Enabled" : "Disabled")
-                    LabeledContent("Internet", value: (original.network ?? "unknown").capitalized)
-                    LabeledContent("Mapbox key", value: original.hasKey ? "Configured" : "Missing")
-                    LabeledContent("Google key", value: original.hasGoogleKey ? "Configured" : "Missing")
-                }
-                Section {
-                    providerPicker("Map provider", selection: $map)
-                    Picker("Directions provider", selection: $router) {
-                        Text("Mapbox").tag("mapbox")
-                        Text("Google Routes").tag("google")
-                    }
-                    if router == "google" {
-                        Text("Your comma requests a traffic-aware route from Google. If Google can’t supply it, the comma tries Mapbox.").font(.footnote)
-                        if !original.hasGoogleKey || !original.hasKey {
-                            Text("Set up both the Google Routes API key and the Mapbox key in Galaxy on your comma.").font(.footnote)
-                        }
-                        if original.routeProvider == "google", let failure = original.googleRoutes?.failure, !failure.isEmpty {
-                            LabeledContent("Last Google routing issue", value: failure)
-                        }
-                        if phoneOnly {
-                            Text("Turn off “Use iPhone-only directions” in Navigation settings to use this provider for your next trip.").font(.footnote)
-                        }
-                    }
-                    Picker("GPS source", selection: $gps) {
-                        Text("Comma with phone backup").tag("backup")
-                        Text("Comma only").tag("comma")
-                        Text("Phone").tag("phone")
-                    }
-                } header: { Text("Providers and location") } footer: {
-                    Text("Configure provider keys in Galaxy on your comma. Phone GPS requires Share phone location in the app.")
-                }
-                Section("Roads to avoid") {
-                    Toggle("Highways", isOn: $highways)
-                    Toggle("Toll roads", isOn: $tolls)
-                    Toggle("Ferries", isOn: $ferries)
-                }
-                Button("Save to comma") { Task { await update(save: true) } }
-                    .disabled(changes.isEmpty)
-            }
-            Button("Reload from comma") { Task { await update(save: false) } }
-            if busy { ProgressView() }
-            if !message.isEmpty { Text(message) }
+            Group { content }.listRowBackground(rowBackground)
         }
         .disabled(busy)
-        .navigationTitle("Comma navigation")
         .task { await update(save: false) }
+    }
+
+    @ViewBuilder private var content: some View {
+        if let original {
+            Section {
+                LabeledContent("Navigation", value: original.enabled ? "Enabled" : "Disabled")
+                LabeledContent("Internet", value: (original.network ?? "unknown").capitalized)
+                LabeledContent("Mapbox key", value: original.hasKey ? "Configured" : "Missing")
+                LabeledContent("Google key", value: original.hasGoogleKey ? "Configured" : "Missing")
+            } header: { Text("On your comma") } footer: { Text(Self.offlineMapsHint) }
+            Section {
+                providerPicker("Map provider", selection: $map)
+                Picker("Directions provider", selection: $router) {
+                    Text("Mapbox").tag("mapbox")
+                    Text("Google Routes").tag("google")
+                }
+                if router == "google" {
+                    Text("Your comma requests a traffic-aware route from Google. If Google can’t supply it, the comma tries Mapbox.").font(.footnote)
+                    if !original.hasGoogleKey || !original.hasKey {
+                        Text("Set up both the Google Routes API key and the Mapbox key in Galaxy on your comma.").font(.footnote)
+                    }
+                    if original.routeProvider == "google", let failure = original.googleRoutes?.failure, !failure.isEmpty {
+                        LabeledContent("Last Google routing issue", value: failure)
+                    }
+                    if phoneOnly {
+                        Text("Turn off “Use iPhone-only directions” in Navigation settings to use this provider for your next trip.").font(.footnote)
+                    }
+                }
+                Picker("GPS source", selection: $gps) {
+                    Text("Comma with phone backup").tag("backup")
+                    Text("Comma only").tag("comma")
+                    Text("Phone").tag("phone")
+                }
+            } header: { Text("Providers and location") } footer: {
+                Text("Configure provider keys in Galaxy on your comma. Phone GPS requires Share phone location in the app.")
+            }
+            Section("Roads to avoid") {
+                Toggle("Highways", isOn: $highways)
+                Toggle("Toll roads", isOn: $tolls)
+                Toggle("Ferries", isOn: $ferries)
+            }
+            Button("Save to comma") { Task { await update(save: true) } }
+                .disabled(changes.isEmpty)
+        } else if busy || !attempted {
+            HStack(spacing: 12) {
+                ProgressView()
+                Text("Loading settings from your comma…").foregroundStyle(.secondary)
+            }
+        } else {
+            Section {
+                Text(message.isEmpty ? "Comma settings are unavailable." : message)
+            } header: { Text("Couldn’t reach your comma") } footer: {
+                Text("Connect to your comma, then reload. " + Self.offlineMapsHint)
+            }
+        }
+        Button("Reload from comma") { Task { await update(save: false) } }
+        if original != nil, !message.isEmpty { Text(message) }
     }
 
     private func providerPicker(_ title: String, selection: Binding<String>) -> some View {
@@ -1102,7 +1124,7 @@ private struct CommaNavigationPreferences: View {
     @MainActor private func update(save: Bool) async {
         guard !busy else { return }
         busy = true
-        defer { busy = false }
+        defer { busy = false; attempted = true }
         let session = connection.session
         do {
             _ = try await connection.ensureDeviceIdentity()
