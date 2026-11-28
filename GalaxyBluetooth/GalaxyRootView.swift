@@ -142,6 +142,7 @@ struct GalaxyRootView: View {
                             compactIconOnly: true, statusModel: model, keepsExpanded: showingAppTabsInGalaxy, select: select)
                     }
                 }.padding(.horizontal, 14)
+                .background(alignment: .top) { if page != .galaxy { CompanionTopBackdrop() } }
             }
         }
         .background {
