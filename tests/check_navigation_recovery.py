@@ -66,7 +66,10 @@ harness = harness.replace('        let connection = Connection(), recovered', ''
         ended.showRouteAcceptance()
         precondition(!success.notice.isEmpty)
         ended.notice = "Route ended."
-        try await Task.sleep(for: .milliseconds(3200))
+        try await Task.sleep(for: .milliseconds(2500))
+        precondition(!success.notice.isEmpty, "Route confirmation cleared early")
+        let deadline = ContinuousClock.now + .seconds(15)
+        while !success.notice.isEmpty && ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(100)) }
         precondition(success.notice.isEmpty && ended.notice == "Route ended.")
         let connection = Connection(), recovered''')
 services = Path('GalaxyBluetooth/Navigation/NavigationServices.swift').read_text()
