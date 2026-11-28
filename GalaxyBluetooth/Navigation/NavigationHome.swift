@@ -252,7 +252,7 @@ struct NavigationHome: View {
         if expanded { return available * 0.78 }
         if navigation.destination != nil {
             let base = accessible ? available * 0.78 : min(available * 0.62, 364)
-            return typeSize > .large ? max(base, min(available * (accessible ? 0.9 : 0.75), routeFit)) : base
+            return typeSize > .large ? max(base, min(accessible ? available - 16 : available * 0.75, routeFit)) : base
         }
         if accessible { return available * 0.78 }
         let base = min(available * 0.49, saved.recentDestinations.isEmpty ? 260 : 310)
