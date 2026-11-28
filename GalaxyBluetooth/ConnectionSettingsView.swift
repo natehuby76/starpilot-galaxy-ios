@@ -22,6 +22,7 @@ struct ConnectionSettingsView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.openURL) private var openURL
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .footnote) private var rowIconWidth: CGFloat = 20
     @AppStorage(AppPreference.openGalaxy) private var autoOpenGalaxy = true
     @AppStorage(AppPreference.expandedGalaxyView) private var expandedGalaxyView = true
     @AppStorage(AppPreference.toolbarLabels) private var toolbarLabels = true
@@ -301,24 +302,32 @@ struct ConnectionSettingsView: View {
 
     private var connectionModePanel: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 3) {
-                ForEach([ConnectionMode.automatic, .bluetooth, .lan], id: \.self) { mode in
-                    Button { model.mode = mode } label: {
-                        Text(LocalizedStringKey(mode == .automatic ? "Automatic" : mode == .bluetooth ? "Bluetooth" : "Local Wi-Fi"))
-                            .font(.footnote.weight(.medium))
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                            .foregroundStyle(model.mode == mode ? Color.white : Color.primary)
-                            .background {
-                                if model.mode == mode {
-                                    Capsule().fill(accent).matchedGeometryEffect(id: "mode", in: modeSelection)
+            if dynamicTypeSize.isAccessibilitySize {
+                Picker("Connection mode", selection: $model.mode) {
+                    Text("Automatic").tag(ConnectionMode.automatic)
+                    Text("Bluetooth").tag(ConnectionMode.bluetooth)
+                    Text("Local Wi-Fi").tag(ConnectionMode.lan)
+                }.pickerStyle(.menu).tint(accent).disabled(pairing)
+            } else {
+                HStack(spacing: 3) {
+                    ForEach([ConnectionMode.automatic, .bluetooth, .lan], id: \.self) { mode in
+                        Button { model.mode = mode } label: {
+                            Text(LocalizedStringKey(mode == .automatic ? "Automatic" : mode == .bluetooth ? "Bluetooth" : "Local Wi-Fi"))
+                                .font(.footnote.weight(.medium))
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                                .foregroundStyle(model.mode == mode ? Color.white : Color.primary)
+                                .background {
+                                    if model.mode == mode {
+                                        Capsule().fill(accent).matchedGeometryEffect(id: "mode", in: modeSelection)
+                                    }
                                 }
-                            }
-                    }.buttonStyle(CompanionPressStyle())
-                        .accessibilityAddTraits(model.mode == mode ? .isSelected : [])
-                }
-            }.animation(reduceMotion ? nil : CompanionMotion.selection, value: model.mode)
-                .padding(3).background(accent.opacity(0.07), in: Capsule())
-                .accessibilityLabel("Connection mode").disabled(pairing)
+                        }.buttonStyle(CompanionPressStyle())
+                            .accessibilityAddTraits(model.mode == mode ? .isSelected : [])
+                    }
+                }.animation(reduceMotion ? nil : CompanionMotion.selection, value: model.mode)
+                    .padding(3).background(accent.opacity(0.07), in: Capsule())
+                    .accessibilityLabel("Connection mode").disabled(pairing)
+            }
             if model.mode == .automatic {
                 HStack {
                     Text(model.connectionPriority.map(\.title).joined(separator: " → ")).font(.caption2).foregroundStyle(muted)
@@ -815,7 +824,7 @@ struct ConnectionSettingsView: View {
     }
     private func row<Control: View>(_ symbol: String, title: String, subtitle: String, @ViewBuilder control: () -> Control) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: symbol).accessibilityHidden(true).foregroundStyle(accent).frame(width: 20)
+            Image(systemName: symbol).accessibilityHidden(true).foregroundStyle(accent).frame(width: rowIconWidth)
             VStack(alignment: .leading, spacing: 2) {
                 Text(LocalizedStringKey(title)).font(.footnote.weight(.medium))
                 Text(LocalizedStringKey(subtitle)).font(.caption2).foregroundStyle(muted).fixedSize(horizontal: false, vertical: true)
