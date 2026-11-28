@@ -140,7 +140,7 @@ struct NavigationHome: View {
                     .font(.footnote).foregroundStyle(.secondary)
                 HStack(spacing: 10) {
                     Button("Show me how") { showCommaSetup = true }.buttonStyle(.borderedProminent)
-                    Button("Use iPhone only") { phoneOnly = true }.buttonStyle(.bordered)
+                    Button("Use iPhone only") { phoneOnly = true }.buttonStyle(.bordered).tint(.primary)
                 }.font(.subheadline.weight(.semibold))
             }
             .padding(14).frame(maxWidth: .infinity, alignment: .leading)
