@@ -197,21 +197,10 @@ struct ConnectionSettingsView: View {
 
     private func settingsPage(wide: Bool) -> some View {
         VStack(alignment: .leading, spacing: 20) {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 6) {
-                    if returningFromGalaxy && model.opened {
-                        Button { select(.galaxy) } label: { Label("Back to Galaxy", systemImage: "chevron.backward") }
-                            .font(.subheadline).frame(minHeight: 44)
-                    }
-                    Text(returningFromGalaxy ? "Settings" : "StarPilot BT")
-                        .font(.custom("Sora-Regular", size: 32, relativeTo: .largeTitle).weight(.semibold))
-                        .accessibilityAddTraits(.isHeader)
-                }
-                Spacer(minLength: 0)
-                if !dynamicTypeSize.isAccessibilitySize {
-                    ConnectionOrbit(route: connected ? model.transport.label : "", pairing: pairing)
-                        .scaleEffect(x: 0.62, y: 0.62).frame(width: 164, height: 64)
-                }
+            ViewThatFits(in: .horizontal) {
+                pageHeader(orbitScale: dynamicTypeSize.isAccessibilitySize ? nil : 0.62)
+                pageHeader(orbitScale: dynamicTypeSize.isAccessibilitySize ? nil : 0.42)
+                pageHeader(orbitScale: nil)
             }
             let layout = wide ? AnyLayout(HStackLayout(alignment: .top, spacing: 22)) : AnyLayout(VStackLayout(spacing: 20))
             // Bound SwiftUI type depth on the launch screen. The device runtime can
@@ -245,6 +234,27 @@ struct ConnectionSettingsView: View {
         }
         .padding(.horizontal, wide ? 28 : 20).padding(.vertical, 18)
         .frame(maxWidth: wide ? 1100 : 560).frame(maxWidth: .infinity)
+    }
+
+    private func pageHeader(orbitScale: CGFloat?) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                if returningFromGalaxy && model.opened {
+                    Button { select(.galaxy) } label: { Label("Back to Galaxy", systemImage: "chevron.backward") }
+                        .font(.subheadline).frame(minHeight: 44)
+                }
+                Text(returningFromGalaxy ? "Settings" : "StarPilot BT")
+                    .font(.custom("Sora-Regular", size: 32, relativeTo: .largeTitle).weight(.semibold))
+                    .lineLimit(1).minimumScaleFactor(orbitScale == nil ? 0.6 : 1)
+                    .fixedSize(horizontal: orbitScale != nil, vertical: false)
+                    .accessibilityAddTraits(.isHeader)
+            }
+            Spacer(minLength: 0)
+            if let orbitScale {
+                ConnectionOrbit(route: connected ? model.transport.label : "", pairing: pairing)
+                    .scaleEffect(x: orbitScale, y: orbitScale).frame(width: 264 * orbitScale, height: 103 * orbitScale)
+            }
+        }
     }
 
     private var footerLinks: some View {
