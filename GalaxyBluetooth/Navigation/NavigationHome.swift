@@ -65,7 +65,7 @@ struct NavigationHome: View {
                 }
             }
         }
-        .tint(StarPilotTheme.guidance)
+        .tint(StarPilotTheme.readable)
         .onChange(of: query) { _, text in
             if searchingPlaces { navigation.suggest(text, choosingStart: false) }
         }
@@ -358,7 +358,7 @@ struct NavigationHome: View {
     private var searchField: some View {
         HStack(spacing: 8) {
             HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass").foregroundStyle(StarPilotTheme.guidance)
+                Image(systemName: "magnifyingglass").foregroundStyle(StarPilotTheme.readable)
                 TextField("Where to?", text: $query)
                     .font(.headline).focused($searchFocused).submitLabel(.search)
                     .accessibilityLabel("Search places or addresses").accessibilityIdentifier("map-search")
@@ -394,13 +394,13 @@ struct NavigationHome: View {
 
     private func placeRow(_ title: String, subtitle: String, symbol: String) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: symbol).accessibilityHidden(true).frame(width: 28).foregroundStyle(StarPilotTheme.guidance)
+            Image(systemName: symbol).accessibilityHidden(true).frame(width: 28).foregroundStyle(StarPilotTheme.readable)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.headline).foregroundStyle(.primary).lineLimit(2)
-                if !subtitle.isEmpty { Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
+                Text(title).font(.headline).foregroundStyle(Color.primary).lineLimit(2)
+                if !subtitle.isEmpty { Text(subtitle).font(.subheadline).foregroundStyle(StarPilotTheme.readableSecondary).lineLimit(2) }
             }
             Spacer(minLength: 0)
-            Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
+            Image(systemName: "chevron.right").font(.caption2).foregroundStyle(StarPilotTheme.readableSecondary)
         }.frame(minHeight: 44).contentShape(Rectangle())
     }
 
@@ -446,7 +446,7 @@ struct NavigationHome: View {
 
     private func chip(_ title: String, symbol: String) -> some View {
         Label(title, systemImage: symbol).font(.subheadline.weight(.semibold))
-            .foregroundStyle(StarPilotTheme.guidance).padding(.horizontal, 12).frame(minHeight: 44)
+            .foregroundStyle(StarPilotTheme.readable).padding(.horizontal, 12).frame(minHeight: 44)
             .background(StarPilotTheme.accent.opacity(0.11), in: RoundedRectangle(cornerRadius: 13))
     }
 
@@ -512,7 +512,7 @@ struct NavigationHome: View {
                 Button { navigation.chooseRoute(index) } label: {
                     HStack(spacing: 12) {
                         Image(systemName: selected ? "checkmark.circle.fill" : "circle").accessibilityHidden(true)
-                            .foregroundStyle(selected ? StarPilotTheme.guidance : Color.secondary)
+                            .foregroundStyle(selected ? StarPilotTheme.readable : Color.secondary)
                         VStack(alignment: .leading, spacing: 3) {
                             Text(NavigationDuration.text(route.expectedTravelTime)).font(.title3.bold()).monospacedDigit()
                             Text([units.text(route.distance), route.name].filter { !$0.isEmpty }.joined(separator: " · "))
@@ -575,7 +575,6 @@ struct NavigationHome: View {
                     messages
                 }
                 .padding(.horizontal, 16).padding(.vertical, 12).frame(maxWidth: 440)
-                .background(Color(uiColor: .systemBackground).opacity(0.09), in: RoundedRectangle(cornerRadius: 24))
                 .modifier(NavigationMapGlass(radius: 24))
                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { tripFrame = $0 }
                 .overlay(alignment: .top) { TripBarFollowMarker(markerPerspective: markerPerspective, navigation: navigation) }
@@ -702,9 +701,11 @@ private struct NavigationMapGlass: ViewModifier {
         if reduceTransparency {
             content.background(Color(uiColor: .secondarySystemBackground), in: shape)
         } else if #available(iOS 26.0, *) {
-            content.glassEffect(.regular, in: shape)
+            content.background(Color(uiColor: .systemBackground).opacity(0.5), in: shape)
+                .glassEffect(.regular.tint(Color(uiColor: .systemBackground).opacity(0.35)), in: shape)
         } else {
-            content.background(.thinMaterial, in: shape)
+            content.background(Color(uiColor: .systemBackground).opacity(0.7), in: shape)
+                .background(.regularMaterial, in: shape)
         }
     }
 }
