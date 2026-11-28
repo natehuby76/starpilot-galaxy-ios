@@ -1055,6 +1055,7 @@ private struct CommaNavigationPreferences: View {
         Form {
             Group { content }.listRowBackground(rowBackground)
         }
+        .tint(StarPilotTheme.accent)
         .disabled(busy)
         .task { await update(save: false) }
     }

@@ -131,15 +131,22 @@ struct NavigationHome: View {
     }
 
     @ViewBuilder private var commaSetupCard: some View {
-        if !phoneOnly, setupState.needsSetup {
+        let neverConnected = setupState == .unknown && !connection.connected
+        if !phoneOnly, setupState.needsSetup || neverConnected {
             VStack(alignment: .leading, spacing: 10) {
-                Label("Finish navigation setup on your comma", systemImage: "exclamationmark.triangle.fill")
+                Label(neverConnected ? "Connect your comma to use navigation" : "Finish navigation setup on your comma",
+                      systemImage: neverConnected ? "antenna.radiowaves.left.and.right" : "exclamationmark.triangle.fill")
                     .font(.subheadline.weight(.semibold)).foregroundStyle(.orange)
-                Text(setupState == .needsKey ? "Your comma needs a Mapbox key before it can search places or plan routes."
-                                             : "Navigation is turned off on your comma.")
+                Text(neverConnected ? "Galaxy sends destinations to your comma. Connect it in Settings, then Galaxy checks its navigation setup."
+                     : setupState == .needsKey ? "Your comma needs a Mapbox key before it can search places or plan routes."
+                     : "Navigation is turned off on your comma.")
                     .font(.footnote).foregroundStyle(.secondary)
                 HStack(spacing: 10) {
-                    Button("Show me how") { showCommaSetup = true }.buttonStyle(.borderedProminent)
+                    if neverConnected {
+                        Button("Connect comma", action: openSettings).buttonStyle(.borderedProminent).tint(StarPilotTheme.accent)
+                    } else {
+                        Button("Show me how") { showCommaSetup = true }.buttonStyle(.borderedProminent).tint(StarPilotTheme.accent)
+                    }
                     Button("Use iPhone only") { phoneOnly = true }.buttonStyle(.bordered).tint(.primary)
                 }.font(.subheadline.weight(.semibold))
             }
@@ -169,21 +176,21 @@ struct NavigationHome: View {
                                     .font(.footnote).foregroundStyle(.secondary)
                             }
                         }
-                    } icon: { Image(systemName: "1.circle.fill") }
+                    } icon: { Image(systemName: "1.circle.fill").foregroundStyle(StarPilotTheme.accent) }
                     Label {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Recommended: use Google for directions").font(.headline)
                             Text("Add a Google key, tap **Test key**, then set **Directions** to Google. You get live-traffic routes and better place search. Your comma falls back to Mapbox on its own if Google can’t answer.")
                                 .font(.footnote).foregroundStyle(.secondary)
                         }
-                    } icon: { Image(systemName: "2.circle.fill") }
+                    } icon: { Image(systemName: "2.circle.fill").foregroundStyle(StarPilotTheme.accent) }
                     Label {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Optional: download offline maps").font(.headline)
                             Text("Under **Navigation & Maps › Offline Maps**, choose your region while parked.")
                                 .font(.footnote).foregroundStyle(.secondary)
                         }
-                    } icon: { Image(systemName: "3.circle.fill") }
+                    } icon: { Image(systemName: "3.circle.fill").foregroundStyle(StarPilotTheme.accent) }
                 } header: { Text("Steps") }
                 Section {
                     Button("Check again") { Task { await checkCommaSetup(); if !setupState.needsSetup { showCommaSetup = false } } }
@@ -193,6 +200,7 @@ struct NavigationHome: View {
                     Text(connection.connected ? "When you’re done, tap Check again." : "Connect to your comma to check again.")
                 }
             }
+            .tint(StarPilotTheme.accent)
             .navigationTitle("Set up comma navigation").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showCommaSetup = false } } }
         }
