@@ -544,14 +544,14 @@ struct NavigationHome: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(NavigationDuration.text(route.expectedTravelTime)).font(.title3.bold()).monospacedDigit()
                             Text([units.text(route.distance), route.name].filter { !$0.isEmpty }.joined(separator: " · "))
-                                .font(.subheadline).foregroundStyle(.secondary)
+                                .font(.subheadline).foregroundStyle(StarPilotTheme.readableSecondary)
                         }
                         Spacer(minLength: 0)
                     }
                     .padding(12).frame(maxWidth: .infinity, alignment: .leading)
-                    .background(selected ? StarPilotTheme.accent.opacity(0.12) : Color(uiColor: .secondarySystemBackground),
+                    .background(selected ? StarPilotTheme.readable.opacity(0.16) : Color(uiColor: .secondarySystemBackground).opacity(0.7),
                                 in: RoundedRectangle(cornerRadius: 14))
-                    .overlay { if selected { RoundedRectangle(cornerRadius: 14).strokeBorder(StarPilotTheme.guidance, lineWidth: 1.5) } }
+                    .overlay { if selected { RoundedRectangle(cornerRadius: 14).strokeBorder(StarPilotTheme.readable, lineWidth: 1.5) } }
                 }.buttonStyle(.plain).accessibilityAddTraits(selected ? .isSelected : [])
                 .accessibilityIdentifier("phone-route-\(index)")
             }
@@ -666,7 +666,8 @@ struct NavigationHome: View {
             Button("Reset navigation", systemImage: "arrow.counterclockwise", role: .destructive) {
                 Task { await connection.app.navigationServices.resetNavigation() }
             }
-        } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }
+        } label: { Image(systemName: "ellipsis").foregroundStyle(StarPilotTheme.readable).frame(width: 44, height: 44) }
+        .tint(Color.primary)
         .accessibilityLabel("Navigation options")
     }
 

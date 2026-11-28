@@ -341,9 +341,11 @@ struct FloatingGalaxyGlass: ViewModifier {
             if reduceTransparency {
                 content.background(Color(uiColor: .secondarySystemBackground), in: shape)
             } else if #available(iOS 26.0, *) {
-                content.glassEffect(.regular.tint(.purple.opacity(0.08)).interactive(), in: shape)
+                content.background(Color(uiColor: .systemBackground).opacity(0.4), in: shape)
+                    .glassEffect(.regular.tint(.purple.opacity(0.08)).interactive(), in: shape)
             } else {
-                content.background(.thinMaterial, in: shape)
+                content.background(Color(uiColor: .systemBackground).opacity(0.5), in: shape)
+                    .background(.regularMaterial, in: shape)
             }
         }
         .overlay {
@@ -481,6 +483,7 @@ private struct AdaptiveConnectionStatus: View {
                 }
             }
             .padding(20)
+            .tint(StarPilotTheme.readable)
             .fixedSize()
             .presentationCompactAdaptation(.popover)
         }
