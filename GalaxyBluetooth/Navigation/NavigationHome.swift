@@ -32,6 +32,8 @@ struct NavigationHome: View {
     @State private var destinationHeaderHeight: CGFloat = 60
     @State private var itineraryHeight: CGFloat = 50
     @State private var startActionHeight: CGFloat = 88
+    @State private var searchFieldHeight: CGFloat = 56
+    @State private var savedContentHeight: CGFloat = 220
     @State private var auxiliarySearch: PlaceSearchPurpose?
     @State private var markerPerspective = DriveMarkerPerspective()
     @State private var headerBottom: CGFloat = 0
@@ -240,14 +242,21 @@ struct NavigationHome: View {
 
     private func plannerHeight(_ available: CGFloat, wide: Bool) -> CGFloat {
         if searchingPlaces { return min(available * (wide ? 0.95 : 0.78), 490) }
-        if collapsed { return typeSize.isAccessibilitySize ? 170 : (navigation.destination == nil ? 128 : 89) }
-        if navigation.destination != nil, navigation.sendToComma, !expanded {
-            return min(available - 16, 20 + destinationHeaderHeight + itineraryHeight + startActionHeight)
+        let accessible = typeSize.isAccessibilitySize
+        let routeFit = 20 + destinationHeaderHeight + itineraryHeight + startActionHeight
+        if collapsed {
+            return navigation.destination == nil ? max(accessible ? 170 : 128, 70 + searchFieldHeight) : max(89, 20 + destinationHeaderHeight)
         }
+        if navigation.destination != nil, navigation.sendToComma, !expanded { return min(available - 16, routeFit) }
         if wide && (expanded || navigation.destination != nil) { return min(available - 16, 490) }
-        if expanded || typeSize.isAccessibilitySize { return available * 0.78 }
-        let preview = navigation.destination != nil
-        return min(available * (preview ? 0.62 : 0.49), preview ? 364 : (saved.recentDestinations.isEmpty ? 260 : 310))
+        if expanded { return available * 0.78 }
+        if navigation.destination != nil {
+            let base = accessible ? available * 0.78 : min(available * 0.62, 364)
+            return typeSize > .large ? max(base, min(available * (accessible ? 0.9 : 0.75), routeFit)) : base
+        }
+        if accessible { return available * 0.78 }
+        let base = min(available * 0.49, saved.recentDestinations.isEmpty ? 260 : 310)
+        return max(base, min(available * 0.62, 20 + searchFieldHeight + savedContentHeight))
     }
 
     private var map: some View {
@@ -313,11 +322,13 @@ struct NavigationHome: View {
                     Divider()
                     RouteStartAction(navigation: navigation, connection: connection)
                         .buttonStyle(NavigationRouteButtonStyle())
+                        .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, 16).padding(.vertical, 9)
                         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { startActionHeight = $0 }
                 }
             } else {
                 searchField
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { searchFieldHeight = $0 }
                 if collapsed && !searchingPlaces {
                     Button {
                         collapsed = false
@@ -338,6 +349,7 @@ struct NavigationHome: View {
                             QueuedPlaceStatus()
                             messages
                         }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { if !searchingPlaces { savedContentHeight = $0 } }
                     }
                     .scrollDismissesKeyboard(.interactively)
                 }
@@ -472,19 +484,27 @@ struct NavigationHome: View {
     }
 
     private func destinationHeader(_ place: NavigationPlace) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: "mappin.and.ellipse").accessibilityHidden(true).font(.title3.weight(.semibold))
-                .foregroundStyle(.white).frame(width: 42, height: 42)
-                .background(StarPilotTheme.guidance.gradient, in: RoundedRectangle(cornerRadius: 14))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(place.name).font(StarPilotTheme.title(21)).lineLimit(2)
-                if !place.address.isEmpty { Text(place.address).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+        let icon = Image(systemName: "mappin.and.ellipse").accessibilityHidden(true).font(.title3.weight(.semibold))
+            .foregroundStyle(.white).frame(width: 42, height: 42)
+            .background(StarPilotTheme.guidance.gradient, in: RoundedRectangle(cornerRadius: 14))
+        let title = VStack(alignment: .leading, spacing: 2) {
+            Text(place.name).font(StarPilotTheme.title(21)).lineLimit(typeSize.isAccessibilitySize ? 3 : 2)
+            if !place.address.isEmpty {
+                Text(place.address).font(.subheadline).foregroundStyle(StarPilotTheme.readableSecondary).lineLimit(2)
             }
-            Spacer(minLength: 0)
-            options
-            Button { navigation.clearPreview(); collapsed = false; expanded = false } label: {
-                Image(systemName: "xmark").font(.subheadline.bold()).frame(width: 44, height: 44)
-            }.disabled(navigation.busy).accessibilityLabel("Close destination")
+        }
+        let close = Button { navigation.clearPreview(); collapsed = false; expanded = false } label: {
+            Image(systemName: "xmark").font(.subheadline.bold()).frame(width: 44, height: 44)
+        }.disabled(navigation.busy).accessibilityLabel("Close destination")
+        return Group {
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 12) { icon; Spacer(minLength: 0); options; close }
+                    title
+                }
+            } else {
+                HStack(spacing: 12) { icon; title; Spacer(minLength: 0); options; close }
+            }
         }.padding(.horizontal, 16).padding(.vertical, 6)
     }
 

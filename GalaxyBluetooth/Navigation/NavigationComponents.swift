@@ -104,7 +104,8 @@ struct RouteStartAction: View {
                 let samePlace = queued != nil && queued?.latitude == navigation.destination?.coordinate.latitude
                     && queued?.longitude == navigation.destination?.coordinate.longitude
                 Text("Your comma calculates route options after it receives this destination.")
-                    .font(.footnote).foregroundStyle(.secondary)
+                    .font(.footnote).foregroundStyle(StarPilotTheme.readableSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 Button {
                     if connection.connected {
                         if let pending = inbox.waiting { inbox.cancelQueuedPlace(pending.id) }
@@ -113,7 +114,8 @@ struct RouteStartAction: View {
                 } label: {
                     Text(navigation.busy ? "Sending destination…" : samePlace ? "Queued for comma" :
                             connection.connected ? "Send to comma" : queued == nil ? "Send when connected" : "Replace queued destination")
-                        .font(.headline).frame(maxWidth: .infinity).padding(.vertical, 5)
+                        .font(.headline).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity).padding(.vertical, 5)
                 }
                 .disabled(navigation.busy || samePlace)
             } else if let external = ExternalNavigator(rawValue: router), let place = navigation.destination,
@@ -142,7 +144,8 @@ struct RouteStartAction: View {
                 Button("Get directions") { Task { await navigation.calculateRoutes(refresh: false) } }
             } else if navigation.plannedStart == nil, let route = navigation.route {
                 Text(route.startSummary(sharing: false))
-                    .font(.footnote).foregroundStyle(.secondary)
+                    .font(.footnote).foregroundStyle(StarPilotTheme.readableSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 Button("Start Route") {
                     Task { await navigation.start(connection: connection) }
                 }
