@@ -551,7 +551,7 @@ struct NavigationHome: View {
                             if navigation.usingComma && !navigation.commaFeedReady {
                                 Text("Awaiting guidance").font(.headline)
                             } else {
-                                let eta = Date().addingTimeInterval(navigation.remainingTime).formatted(date: .omitted, time: .shortened)
+                                let eta = Date().addingTimeInterval(ceil(navigation.remainingTime / 60) * 60).formatted(date: .omitted, time: .shortened)
                                 Text("Arrive \(eta)").font(StarPilotTheme.title(22)).monospacedDigit()
                                 Text("\(NavigationDuration.text(navigation.remainingTime)) · \(units.text(navigation.remainingDistance))")
                                     .font(.subheadline.weight(.medium)).foregroundStyle(.primary.opacity(0.82)).monospacedDigit()

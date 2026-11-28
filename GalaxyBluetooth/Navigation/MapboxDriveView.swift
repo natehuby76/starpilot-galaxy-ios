@@ -757,7 +757,7 @@ struct MapboxDriveMap: View {
             options.attributionButton.position = .topTrailing
             options.attributionButton.margins = CGPoint(x: 52, y: 8)
             options.logo.position = .topTrailing
-            options.logo.margins = CGPoint(x: 80, y: 8)
+            options.logo.margins = CGPoint(x: 90, y: 8)
         } else {
             options.compass.margins = CGPoint(x: 12, y: headerInset)
             options.logo.margins = CGPoint(x: plannerInsets.leading + 8, y: panel + 6)
@@ -815,8 +815,10 @@ struct MapboxDriveMap: View {
         cameraFix = CLLocation(coordinate: accepted, altitude: 0, horizontalAccuracy: -1, verticalAccuracy: -1, timestamp: stamp)
         // A short CarPlay screen otherwise shows only a narrow band of detailed ground.
         // Pull back while cruising and restore the close view as the turn approaches.
+        let screenZoom = carDisplay.map { $0.mapHeight > 0 && $0.phoneMapHeight > $0.mapHeight
+            ? min(0.75, log2(Double($0.phoneMapHeight / $0.mapHeight))) : 0 } ?? 0
         let lookAheadZoom = driving && carDisplay != nil
-            ? 0.65 * min(1, max(0, speed / 10)) * (navigation.distanceToTurn > 0 ? min(1, navigation.distanceToTurn / 180) : 1)
+            ? max(screenZoom, 0.65 * min(1, max(0, speed / 10)) * (navigation.distanceToTurn > 0 ? min(1, navigation.distanceToTurn / 180) : 1))
             : 0
         let camera = Viewport.camera(center: center, zoom: CGFloat(cameraZoom - lookAheadZoom - log2(carDisplay?.zoomFactor ?? 1)), bearing: cameraBearing,
                                      pitch: CGFloat(cameraPitch))

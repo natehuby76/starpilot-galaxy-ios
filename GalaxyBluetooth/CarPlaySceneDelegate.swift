@@ -357,7 +357,7 @@ final class CarPlaySceneDelegate: NSObject, CPTemplateApplicationSceneDelegate, 
         guard let trip, let navigationSession else { return }
         let distance = max(0, nav.remainingDistance.isFinite ? nav.remainingDistance : 0)
         let duration = max(0, nav.remainingTime.isFinite ? nav.remainingTime : 0)
-        template.updateEstimates(travelEstimates(meters: distance, seconds: duration), for: trip)
+        template.updateEstimates(travelEstimates(meters: distance, seconds: duration > 0 ? ceil(duration / 60) * 60 : 0), for: trip)
         let lines = nav.instruction.split(whereSeparator: \.isNewline).map(String.init)
         if let first = lines.first {
             let variants = lines.count > 1 ? [lines.joined(separator: " · "), first] : [first]
@@ -374,7 +374,7 @@ final class CarPlaySceneDelegate: NSObject, CPTemplateApplicationSceneDelegate, 
                     turn.contains("u-turn") ? "arrow.uturn.down" :
                     turn.contains("left") ? "arrow.turn.up.left" :
                     turn.contains("right") ? "arrow.turn.up.right" : "arrow.up"
-                next.symbolImage = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 32, weight: .bold))
+                next.symbolImage = maneuverTile(symbol)
                 next.dashboardSymbolImage = next.symbolImage
                 if #available(iOS 17.4, *) { navigationSession.add([next]) }
                 maneuver = next
@@ -387,6 +387,20 @@ final class CarPlaySceneDelegate: NSObject, CPTemplateApplicationSceneDelegate, 
             navigationSession.upcomingManeuvers = []
             maneuver = nil
         }
+    }
+
+    private func maneuverTile(_ symbol: String) -> UIImage {
+        let size = CGSize(width: 48, height: 48)
+        let arrow = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 26, weight: .bold))?
+            .withTintColor(.white, renderingMode: .alwaysOriginal)
+        return UIGraphicsImageRenderer(size: size).image { _ in
+            StarPilotTheme.uiGuidance.setFill()
+            UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 14).fill()
+            if let arrow {
+                arrow.draw(in: CGRect(x: (size.width - arrow.size.width) / 2, y: (size.height - arrow.size.height) / 2,
+                                      width: arrow.size.width, height: arrow.size.height))
+            }
+        }.withRenderingMode(.alwaysOriginal)
     }
 
     private func travelEstimates(meters: Double, seconds: Double) -> CPTravelEstimates {
